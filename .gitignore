@@ -1,0 +1,17 @@
+# ── 构建产物 ──
+[Bb]in/
+[Oo]bj/
+*.user
+.vs/
+
+# ── 本地录音 / 抓帧产物（不入库，含隐私音频）──
+/recording/
+*.wav
+*.mp3
+*.m4a
+*.aac
+
+# ── OS ──
+Thumbs.db
+desktop.ini
+.DS_Store
