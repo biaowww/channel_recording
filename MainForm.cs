@@ -125,6 +125,7 @@ internal sealed class MainForm : Form
     private void RefreshSources()
     {
         _suppressSource = true;
+        _monitors = ScreenCapture.Monitors();   // 刷新时重扫显示器，支持中途插拔屏
         _sources.Clear();
         _cmbSource.Items.Clear();
 

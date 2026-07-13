@@ -53,6 +53,9 @@ internal sealed class WgcCapturer : IDisposable
     private int _w, _h;
     private long _lastMs;     // 限流：最近一次做 GPU→CPU 读回的时刻
 
+    private readonly object _frameLock = new();   // 串行化 OnFrameArrived 与 Dispose，避免停止时用已释放的 pool/device
+    private volatile bool _disposed;
+
     public static WgcCapturer ForWindow(IntPtr hwnd) => new(CreateItemForWindow(hwnd));
     public static WgcCapturer ForMonitor(IntPtr hmon) => new(CreateItemForMonitor(hmon));
 
@@ -107,34 +110,48 @@ internal sealed class WgcCapturer : IDisposable
     private WgcCapturer(GraphicsCaptureItem item)
     {
         _device = CreateD3DDevice();
-        _poolSize = item.Size;
-        _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(
-            _device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _poolSize);
-        _pool.FrameArrived += OnFrameArrived;
-        _session = _pool.CreateCaptureSession(item);
-        TrySet(() => _session.IsCursorCaptureEnabled = false);
-        _session.StartCapture();
+        try
+        {
+            _poolSize = item.Size;
+            _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(
+                _device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _poolSize);
+            _pool.FrameArrived += OnFrameArrived;
+            _session = _pool.CreateCaptureSession(item);
+            TrySet(() => _session.IsCursorCaptureEnabled = false);
+            _session.StartCapture();
+        }
+        catch { Dispose(); throw; }   // 半途失败时释放已创建的 D3D 设备/池/会话
     }
 
     private static void TrySet(Action a) { try { a(); } catch { } }
 
     private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
     {
-        using var frame = sender.TryGetNextFrame();
-        if (frame == null) return;
-
-        long now = Environment.TickCount64;
-        if (now - _lastMs >= 350)   // 限流：WGC 可能 60fps 到帧，抓帧只需 ~1fps
+        // 回调在 WGC 自己的线程池线程上；与 Dispose 用同一把锁串行化，且已释放后直接返回，
+        // 避免"边释放 pool/device 边取帧"造成后台线程崩进程（try/catch 兜底不可捕获的除外的一切）。
+        lock (_frameLock)
         {
-            _lastMs = now;
-            try { ReadFrame(frame); } catch { }
-        }
+            if (_disposed) return;
+            try
+            {
+                using var frame = sender.TryGetNextFrame();
+                if (frame == null) return;
 
-        var cs = frame.ContentSize;
-        if (cs.Width != _poolSize.Width || cs.Height != _poolSize.Height)
-        {
-            _poolSize = cs;
-            try { _pool.Recreate(_device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _poolSize); } catch { }
+                long now = Environment.TickCount64;
+                if (now - _lastMs >= 350)   // 限流：WGC 可能 60fps 到帧，抓帧只需 ~1fps
+                {
+                    _lastMs = now;
+                    try { ReadFrame(frame); } catch { }
+                }
+
+                var cs = frame.ContentSize;
+                if (cs.Width != _poolSize.Width || cs.Height != _poolSize.Height)
+                {
+                    _poolSize = cs;
+                    try { _pool.Recreate(_device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _poolSize); } catch { }
+                }
+            }
+            catch { }
         }
     }
 
@@ -181,8 +198,14 @@ internal sealed class WgcCapturer : IDisposable
 
     public void Dispose()
     {
-        try { _session?.Dispose(); } catch { }
-        try { _pool?.Dispose(); } catch { }
-        try { _device?.Dispose(); } catch { }
+        // 先退订，阻止新回调派发；再拿锁（会等待正在执行的回调结束），置位后释放，确保无回调在飞。
+        try { if (_pool != null) _pool.FrameArrived -= OnFrameArrived; } catch { }
+        lock (_frameLock)
+        {
+            _disposed = true;
+            try { _session?.Dispose(); } catch { }
+            try { _pool?.Dispose(); } catch { }
+            try { _device?.Dispose(); } catch { }
+        }
     }
 }

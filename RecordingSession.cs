@@ -67,7 +67,12 @@ internal sealed class RecordingSession
         string baseName = PathUtil.SessionBaseName(MeetingName);
         SessionBase = baseName;
         if (OutPathOverride == null)
-            for (int n = 2; File.Exists(Path.Combine(RecordingDir, SessionBase + ".wav")); n++)
+            // 去重要覆盖最终产物：AAC 会把 .wav 删掉只留 .m4a，故 .wav/.m4a/_slides 任一存在就换名
+            for (int n = 2;
+                 File.Exists(Path.Combine(RecordingDir, SessionBase + ".wav")) ||
+                 File.Exists(Path.Combine(RecordingDir, SessionBase + ".m4a")) ||
+                 Directory.Exists(Path.Combine(RecordingDir, SessionBase + "_slides"));
+                 n++)
                 SessionBase = $"{baseName}_{n}";
 
         WavPath = OutPathOverride != null
@@ -168,14 +173,18 @@ internal sealed class RecordingSession
         string audioErr = null;
         if (EncodeAac && File.Exists(WavPath))
         {
+            string m4a = Path.ChangeExtension(WavPath, ".m4a");
             try
             {
-                string m4a = Path.ChangeExtension(WavPath, ".m4a");
                 AudioEncoder.WavToAac(WavPath, m4a, AacBitrate);
                 AudioPath = m4a;
                 try { File.Delete(WavPath); } catch { }
             }
-            catch (Exception ex) { audioErr = ex.Message; AudioPath = WavPath; }
+            catch (Exception ex)
+            {
+                audioErr = ex.Message; AudioPath = WavPath;
+                try { File.Delete(m4a); } catch { }   // 清理半截 m4a，避免和保留的 WAV 并存造成困惑
+            }
         }
 
         // 文档导出可能抛（输出被占用/磁盘满/图片被删等）——绝不能因此跳过 Stopped，否则上层会卡死
