@@ -6,7 +6,7 @@ using System.Text;
 
 namespace ChannelRecording;
 
-internal readonly record struct MonitorInfo(int Index, Rectangle Bounds, bool Primary);
+internal readonly record struct MonitorInfo(int Index, Rectangle Bounds, bool Primary, IntPtr Hmon);
 internal readonly record struct WindowInfo(IntPtr Hwnd, uint Pid, string Process, string Title);
 
 /// <summary>用 GDI/System.Drawing 抓屏。支持整屏、指定显示器、或自定义区域。</summary>
@@ -65,10 +65,35 @@ internal static class ScreenCapture
                     mi.rcMonitor.Right - mi.rcMonitor.Left, mi.rcMonitor.Bottom - mi.rcMonitor.Top);
                 primary = (mi.dwFlags & 1) != 0; // MONITORINFOF_PRIMARY
             }
-            list.Add(new MonitorInfo(++idx, bounds, primary));
+            list.Add(new MonitorInfo(++idx, bounds, primary, h));
             return true;
         }, IntPtr.Zero);
         return list;
+    }
+
+    /// <summary>主显示器信息（含 HMONITOR）。</summary>
+    public static MonitorInfo PrimaryMonitor()
+    {
+        var mons = Monitors();
+        foreach (var m in mons) if (m.Primary) return m;
+        return mons.Count > 0 ? mons[0] : new MonitorInfo(1, PrimaryBounds(), true, IntPtr.Zero);
+    }
+
+    /// <summary>包含给定矩形（中心）的显示器；否则取相交最多的；再否则主显示器。</summary>
+    public static MonitorInfo MonitorForRect(Rectangle r)
+    {
+        var mons = Monitors();
+        var center = new Point(r.X + r.Width / 2, r.Y + r.Height / 2);
+        foreach (var m in mons) if (m.Bounds.Contains(center)) return m;
+
+        MonitorInfo best = default; long bestArea = -1;
+        foreach (var m in mons)
+        {
+            var it = Rectangle.Intersect(m.Bounds, r);
+            long a = (long)it.Width * it.Height;
+            if (a > bestArea) { bestArea = a; best = m; }
+        }
+        return bestArea > 0 ? best : PrimaryMonitor();
     }
 
     public static Rectangle PrimaryBounds()

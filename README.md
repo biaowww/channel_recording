@@ -45,7 +45,7 @@ git clone https://github.com/biaowww/channel_recording.git
 cd channel_recording
 dotnet build -c Release
 ```
-编译好后，程序在：`bin\Release\net8.0-windows\ChannelRecorder.exe`。
+编译好后，程序在：`bin\Release\net8.0-windows10.0.19041.0\ChannelRecorder.exe`（也可双击根目录 `gui.bat` / `rec.bat`）。
 
 ---
 
@@ -57,7 +57,8 @@ dotnet build -c Release
    - 常见软件叫什么名字，见下面的表。
 3. **（可选）勾选项**：
    - ☑ **含子进程**：默认勾上。会议软件的声音常在子进程里，建议保留。
-   - ☑ **同时录我的麦克风**：把你自己说的话也录进去。
+   - ☑ **录麦克风**：把你自己说的话也一起录进去。
+   - ☑ **音频转 AAC(小)**：默认勾上，录完自动压成小体积 `.m4a`（不勾则保留无损 WAV）。
    - ☑ **抓投屏 PPT**：自动把投屏画面按翻页存图，并导出 PDF / Word。
 4. **（勾了"抓投屏"才需要）选「投屏来源」** —— 你要录屏幕的哪一块：
    - **显示器**：录一整块屏幕（多显示器可选第几个）。
@@ -86,9 +87,8 @@ dotnet build -c Release
 
 所有产物都在项目的 **`recording\`** 文件夹里：
 
-- 录音：`会议名_时间.wav`（44100Hz / 16bit / 立体声，约 **10 MB/分钟**）。
+- 录音：默认 `会议名_时间.m4a`（**AAC 96kbps，约 0.7 MB/分钟**，200MB 约能装 4.6 小时）；勾掉"音频转 AAC"或命令行加 `--wav` 则输出无损 `.wav`（约 10 MB/分钟）。
 - 投屏：`会议名_时间_slides\` 里一张张图片 ＋ `会议名_时间.pdf`（或 `.docx`）。
-- 想要更小的 MP3：装了 [ffmpeg](https://ffmpeg.org/) 后执行 `ffmpeg -i 录音.wav -b:a 128k 录音.mp3`。
 
 ---
 
@@ -114,8 +114,10 @@ dotnet build -c Release
 | --- | --- |
 | `--name <名字>` / `--pid <N>` | 指定目标进程（名字多匹配时，优先选正在出声的那个） |
 | `--mic` | 同时录默认麦克风并混入同一文件 |
+| `--wav` | 保留无损 WAV（默认录完转 AAC `.m4a` 压体积） |
 | `--slides` | 抓投屏 PPT |
 | `--region x,y,宽,高` / `--monitor <N>` | 抓某块区域 / 第 N 个显示器 |
+| `--window <标题>` | 抓标题含该字样的窗口（跟随移动、被遮挡也能抓） |
 | `--slide-interval <毫秒>` | 抓帧间隔（默认 1000） |
 | `--doc pdf\|docx\|both` | 投屏导出格式（默认 pdf） |
 | `--silence <秒>` | 有声之后静音满 N 秒自动停（默认 60，0 = 关闭） |
@@ -131,7 +133,7 @@ dotnet build -c Release
 - **双击没反应 / 提示要装 .NET？** → 装 **.NET 8 桌面运行时**（见"准备"）。
 - **下拉里找不到要录的程序？** → 先让它**出声**，再点 **刷新**。
 - **录出来是静音的？** → 录制期间目标程序得真的在出声；另外"静音自动停"的秒数别设太短。
-- **投屏抓到的是别的画面？** → 它抓的是屏幕上**看得见**的内容，别让别的窗口盖住目标；最稳的办法是用 **框选区域** 只框 PPT 那一块。
+- **投屏花屏 / 抓到别的画面？** → 投屏用的是 Windows 现代捕获 (WGC)：抓**窗口**时即使被别的窗口盖住也能抓到它自己的画面、也不花屏。只想要 PPT 那一块就用 **框选区域**。
 - **麦克风没录进去？** → 录的是 Windows **默认**录音设备，先到「设置 → 系统 → 声音」把你要用的麦克风设为默认输入。
 - **报错"需要 Windows 10 2004+"？** → 进程级录音是较新系统才有的特性，老系统不支持。
 
@@ -139,7 +141,7 @@ dotnet build -c Release
 
 ## 七、工作原理（一句话）
 
-用 Windows 的 **WASAPI 进程级回环捕获（Process Loopback）**，在系统混音层单独抓目标进程（及其子进程）输出的音频；投屏抓帧用**感知哈希**判断"翻页"再存图。全程不依赖会议软件的录制接口，因此与其"录制权限"无关。需要 Windows 10 2004（build 19041）及以上。
+用 Windows 的 **WASAPI 进程级回环捕获（Process Loopback）**，在系统混音层单独抓目标进程（及其子进程）输出的音频，收尾用 **Media Foundation** 转 AAC；投屏抓帧走 **Windows.Graphics.Capture (WGC)** GPU 捕获（无撕裂、能抓硬件加速画面与被遮挡窗口），再用**感知哈希**判断"翻页"存图。全程不依赖会议软件的录制接口，因此与其"录制权限"无关。需要 Windows 10 2004（build 19041）及以上。
 
 ## 八、给想分享给别人的作者
 
@@ -156,12 +158,15 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 | `Interop.cs` | WASAPI / Core Audio 的 COM 互操作（进程回环、会话枚举） |
 | `LoopbackCapture.cs` | 进程级回环捕获 + 音量/静音追踪 + 麦克风混音 |
 | `MicCapture.cs` / `ByteRing.cs` | 麦克风采集 + 线程安全环形缓冲 |
+| `AudioEncoder.cs` | WAV → AAC(.m4a) 转码（Media Foundation，经 NAudio） |
 | `RecordingSession.cs` | 会话编排（声音+麦克风+抓帧+自动停止+收尾，GUI/CLI 共用） |
 | `MainForm.cs` | WinForms 图形界面 |
 | `Mta.cs` | 把音频 COM 激活统一切到 MTA 线程（GUI 是 STA） |
 | `AudioSessionLister.cs` | 枚举正在发声的进程 + PID（`list`） |
-| `ScreenCapture.cs` | 抓屏（整屏 / 显示器 / 区域 / 窗口）+ DPI 感知 |
-| `SlideCapturer.cs` | 感知哈希识别换页，存 slide 图片 |
+| `WgcCapturer.cs` | Windows.Graphics.Capture 抓帧（GPU、无撕裂、抓被遮挡窗口） |
+| `SlideSource.cs` | 投屏抓取源描述（显示器 / 窗口 / 框选） |
+| `ScreenCapture.cs` | 窗口/显示器枚举与句柄、GDI 退路、DPI 感知 |
+| `SlideCapturer.cs` | 感知哈希识别换页，存 slide 图片（帧来自 WGC/GDI） |
 | `PdfBuilder.cs` / `DocxBuilder.cs` | 图片序列合成 PDF / Word（零依赖手写） |
 | `WavWriter.cs` | 16-bit PCM WAV 写入 |
 | `PathUtil.cs` | 归档目录、会议名清洗、会话命名 |

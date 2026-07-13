@@ -71,7 +71,7 @@ internal static class Program
         string name = null, outPath = null, dirOverride = null;
         bool includeTree = true, stopOnExit = true, slides = false, mic = false, encodeAac = true;
         int seconds = 0, silence = 60, slideInterval = 1000, monitor = 0;
-        string region = null, docFmt = "pdf";
+        string region = null, docFmt = "pdf", windowTitle = null;
 
         try
         {
@@ -93,6 +93,7 @@ internal static class Program
                     case "--slides":   slides = true; break;
                     case "--region":   region = args[++i]; slides = true; break;
                     case "--monitor":  monitor = int.Parse(args[++i]); slides = true; break;
+                    case "--window":   windowTitle = args[++i]; slides = true; break;   // 按窗口标题(含)抓该窗口
                     case "--slide-interval": slideInterval = int.Parse(args[++i]); break;
                     case "--doc":      docFmt = args[++i].ToLowerInvariant(); break;
                     default: Console.Error.WriteLine($"未知参数: {args[i]}"); return 1;
@@ -125,7 +126,7 @@ internal static class Program
             SilenceSeconds = silence,
             StopOnExit = stopOnExit,
             Slides = slides,
-            Region = slides ? ResolveRegion(region, monitor) : Rectangle.Empty,
+            SlideSource = slides ? ResolveSlideSource(region, monitor, windowTitle) : null,
             SlideIntervalMs = slideInterval,
             DocFormat = docFmt,
             MeetingName = GetMeetingName(pid, name),
@@ -146,7 +147,7 @@ internal static class Program
         Console.WriteLine($"音频格式: {(encodeAac ? "AAC .m4a (96kbps，收尾自动转码压体积)" : "WAV 无损")}");
         if (mic) Console.WriteLine($"麦克风: {(session.MicActive ? "已混入" : "不可用，仅录应用声音")}");
         if (silence > 0) Console.WriteLine($"自动停止: 静音 {silence}s 或目标进程退出");
-        if (slides) Console.WriteLine($"投屏抓帧: {session.Region.Width}x{session.Region.Height} @({session.Region.X},{session.Region.Y})，导出 {docFmt}");
+        if (slides) Console.WriteLine($"投屏抓帧: {DescribeSource(session.SlideSource)}（WGC），导出 {docFmt}");
 
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; session.Stop("手动停止 (Ctrl+C)"); };
         if (!Console.IsInputRedirected)
@@ -173,8 +174,15 @@ internal static class Program
         return 0;
     }
 
-    private static Rectangle ResolveRegion(string region, int monitor)
+    private static SlideSource ResolveSlideSource(string region, int monitor, string windowTitle)
     {
+        if (!string.IsNullOrEmpty(windowTitle))
+        {
+            var w = ScreenCapture.Windows().FirstOrDefault(
+                x => x.Title.Contains(windowTitle, StringComparison.OrdinalIgnoreCase));
+            if (w.Hwnd != IntPtr.Zero) return SlideSource.FromWindow(w.Hwnd);
+            Console.Error.WriteLine($"没找到标题含 \"{windowTitle}\" 的窗口，退回主显示器。");
+        }
         if (!string.IsNullOrEmpty(region))
         {
             var p = region.Split(',', StringSplitOptions.TrimEntries);
@@ -184,20 +192,32 @@ internal static class Program
             {
                 var req = new Rectangle(x, y, w, h);
                 var clamped = Rectangle.Intersect(req, ScreenCapture.VirtualBounds());
-                if (clamped.Width <= 0 || clamped.Height <= 0)
-                    Console.Error.WriteLine("--region 完全在屏幕之外，已退回主显示器。");
-                else
+                if (clamped.Width > 0 && clamped.Height > 0)
                 {
                     if (clamped != req)
                         Console.Error.WriteLine($"--region 超出屏幕，已裁剪为 {clamped.Width}x{clamped.Height} @({clamped.X},{clamped.Y})。");
-                    return clamped;
+                    var m = ScreenCapture.MonitorForRect(clamped);
+                    return SlideSource.FromRegion(clamped, m.Hmon, m.Bounds);
                 }
+                Console.Error.WriteLine("--region 完全在屏幕之外，已退回主显示器。");
             }
             else Console.Error.WriteLine("--region 格式应为 x,y,宽,高，已退回主显示器。");
         }
-        if (monitor > 0) return ScreenCapture.MonitorBounds(monitor);
-        return ScreenCapture.PrimaryBounds();
+        if (monitor > 0)
+        {
+            var m = ScreenCapture.Monitors().FirstOrDefault(x => x.Index == monitor);
+            if (m.Hmon != IntPtr.Zero) return SlideSource.FromMonitor(m.Hmon, m.Bounds);
+        }
+        var pm = ScreenCapture.PrimaryMonitor();
+        return SlideSource.FromMonitor(pm.Hmon, pm.Bounds);
     }
+
+    private static string DescribeSource(SlideSource s) => s?.Kind switch
+    {
+        SlideSourceKind.Window => "窗口",
+        SlideSourceKind.Region => $"框选区域 {s.Region.Width}x{s.Region.Height}",
+        _ => "显示器",
+    };
 
     private static uint ResolvePidByName(string name)
     {

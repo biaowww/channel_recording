@@ -19,8 +19,7 @@ internal sealed class RecordingSession
     public int SilenceSeconds = 60;     // 0 = 关闭静音停止
     public bool StopOnExit = true;
     public bool Slides;
-    public Rectangle Region;                 // 固定区域（CLI 用）
-    public Func<Rectangle> RegionProvider;   // 动态区域（GUI 选窗口/框选时用）；为空则用 Region
+    public SlideSource SlideSource;   // 投屏抓取源（显示器 / 窗口 / 框选区域）
     public int SlideIntervalMs = 1000;
     public string DocFormat = "pdf";    // pdf | docx | both
     public string MeetingName = "recording";
@@ -53,6 +52,7 @@ internal sealed class RecordingSession
     private LoopbackCapture _capture;
     private MicCapture _mic;
     private SlideCapturer _slideCap;
+    private WgcCapturer _wgc;
     private Process _target;
     private Thread _monitor;
     private readonly ManualResetEventSlim _done = new(false);
@@ -84,11 +84,10 @@ internal sealed class RecordingSession
                 catch { _mic = null; MicActive = false; }   // 麦克风不可用：降级为只录应用声音
             }
 
-            if (Slides)
+            if (Slides && SlideSource != null)
             {
                 SlidesDir = Path.Combine(RecordingDir, SessionBase + "_slides");
-                Rectangle fixedRegion = Region;
-                _slideCap = new SlideCapturer(RegionProvider ?? (() => fixedRegion), SlidesDir, SlideIntervalMs);
+                _slideCap = new SlideCapturer(BuildFrameProvider(SlideSource), SlidesDir, SlideIntervalMs);
             }
 
             _capture = new LoopbackCapture();
@@ -100,6 +99,7 @@ internal sealed class RecordingSession
         {
             // 启动失败：尽力清理已起来的部分，再向上抛
             try { _slideCap?.Stop(); } catch { }
+            try { _wgc?.Dispose(); } catch { }
             try { _capture?.Stop(); } catch { }
             try { _mic?.Stop(); } catch { }
             throw;
@@ -156,6 +156,7 @@ internal sealed class RecordingSession
         if (Interlocked.Exchange(ref _finished, 1) != 0) return;
 
         try { _slideCap?.Stop(); } catch { }
+        try { _wgc?.Dispose(); } catch { }
         try { _capture?.Stop(); } catch { }   // 先停应用声音消费端（含最后一次混音排空 + WAV 收尾）
         try { _mic?.Stop(); } catch { }        // 再停麦克风生产端
         try { _target?.Dispose(); } catch { }
@@ -198,6 +199,53 @@ internal sealed class RecordingSession
         if (audioErr != null) reason += $"（AAC 转码失败，已保留 WAV: {audioErr}）";
         if (buildErr != null) reason += $"（文档导出失败: {buildErr}）";
         try { Stopped?.Invoke(reason); } catch { }   // 订阅者异常不得反噬收尾线程
+    }
+
+    /// <summary>按抓取源建"取一帧"函数：WGC 优先（无撕裂、抓硬件加速/被遮挡窗口），不支持则退回 GDI。</summary>
+    private Func<Bitmap> BuildFrameProvider(SlideSource src)
+    {
+        if (WgcCapturer.IsSupported)
+        {
+            try
+            {
+                _wgc = src.Kind == SlideSourceKind.Window
+                    ? WgcCapturer.ForWindow(src.Hwnd)
+                    : WgcCapturer.ForMonitor(src.Hmon);
+                var cap = _wgc;
+                if (src.Kind == SlideSourceKind.Region)
+                {
+                    Rectangle region = src.Region, mon = src.MonitorBounds;
+                    return () => CropRegion(cap.TryGrab(), region, mon);
+                }
+                return cap.TryGrab;
+            }
+            catch { try { _wgc?.Dispose(); } catch { } _wgc = null; }   // WGC 建失败 → 退回 GDI
+        }
+
+        // GDI 退路
+        Func<Rectangle> rect = src.Kind switch
+        {
+            SlideSourceKind.Window => () => ScreenCapture.WindowBounds(src.Hwnd),
+            SlideSourceKind.Region => () => src.Region,
+            _ => () => src.MonitorBounds.Width > 0 ? src.MonitorBounds : ScreenCapture.PrimaryBounds(),
+        };
+        return () =>
+        {
+            var r = rect();
+            return (r.Width <= 0 || r.Height <= 0) ? null : ScreenCapture.Capture(r);
+        };
+    }
+
+    /// <summary>从整块显示器帧里裁出区域（虚拟坐标 → 该显示器内坐标）。</summary>
+    private static Bitmap CropRegion(Bitmap monitorFrame, Rectangle region, Rectangle monitorBounds)
+    {
+        if (monitorFrame == null) return null;
+        var crop = new Rectangle(region.X - monitorBounds.X, region.Y - monitorBounds.Y, region.Width, region.Height);
+        crop = Rectangle.Intersect(crop, new Rectangle(0, 0, monitorFrame.Width, monitorFrame.Height));
+        if (crop.Width <= 0 || crop.Height <= 0) { monitorFrame.Dispose(); return null; }
+        var sub = monitorFrame.Clone(crop, monitorFrame.PixelFormat);
+        monitorFrame.Dispose();
+        return sub;
     }
 
     private static bool HasExitedSafe(Process p)

@@ -18,7 +18,7 @@ internal sealed class SlideCapturer
     public int NewSlideDistance { get; set; } = 30;   // 与上次保存差异 > 此值 => 可能换页
     public int StableDistance   { get; set; } = 10;   // 与上一帧差异 <= 此值 => 画面已稳定
 
-    private readonly Func<Rectangle> _region;   // 每次取一次，支持跟随移动的窗口
+    private readonly Func<Bitmap> _grab;   // 每次取一帧（WGC/GDI），null 表示本次没有可用帧
     private readonly string _dir;
     private readonly int _intervalMs;
     private readonly EventWaitHandle _stop = new(false, EventResetMode.ManualReset);
@@ -31,9 +31,9 @@ internal sealed class SlideCapturer
     public IReadOnlyList<SlideImage> Slides => _slides;
     public int Count => _slides.Count;
 
-    public SlideCapturer(Func<Rectangle> regionProvider, string slidesDir, int intervalMs = 1000)
+    public SlideCapturer(Func<Bitmap> frameProvider, string slidesDir, int intervalMs = 1000)
     {
-        _region = regionProvider;
+        _grab = frameProvider;
         _dir = slidesDir;
         _intervalMs = Math.Max(250, intervalMs);
         Directory.CreateDirectory(_dir);
@@ -63,9 +63,8 @@ internal sealed class SlideCapturer
 
     private void Tick()
     {
-        Rectangle r = _region();
-        if (r.Width <= 0 || r.Height <= 0) return;   // 窗口最小化/无效，跳过本次
-        using var bmp = ScreenCapture.Capture(r);
+        using var bmp = _grab();
+        if (bmp == null) return;   // 本次没有可用帧
         ulong[] cur = AverageHash(bmp);
 
         if (_lastSavedHash == null)

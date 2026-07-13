@@ -11,8 +11,9 @@ internal sealed class MainForm : Form
     private sealed class Source
     {
         public SrcKind Kind;
-        public Rectangle Rect;
-        public IntPtr Hwnd;
+        public Rectangle Rect;    // Monitor=显示器边界；Region=框选矩形
+        public IntPtr Hwnd;       // Window
+        public IntPtr Hmon;       // Monitor
         public string Label;
     }
 
@@ -127,9 +128,10 @@ internal sealed class MainForm : Form
         _sources.Clear();
         _cmbSource.Items.Clear();
 
-        _sources.Add(new Source { Kind = SrcKind.Monitor, Rect = ScreenCapture.PrimaryBounds(), Label = "主显示器" });
+        var pm = ScreenCapture.PrimaryMonitor();
+        _sources.Add(new Source { Kind = SrcKind.Monitor, Rect = pm.Bounds, Hmon = pm.Hmon, Label = "主显示器" });
         foreach (var m in _monitors)
-            _sources.Add(new Source { Kind = SrcKind.Monitor, Rect = m.Bounds, Label = $"显示器 {m.Index} ({m.Bounds.Width}x{m.Bounds.Height}){(m.Primary ? " 主" : "")}" });
+            _sources.Add(new Source { Kind = SrcKind.Monitor, Rect = m.Bounds, Hmon = m.Hmon, Label = $"显示器 {m.Index} ({m.Bounds.Width}x{m.Bounds.Height}){(m.Primary ? " 主" : "")}" });
 
         try
         {
@@ -175,17 +177,23 @@ internal sealed class MainForm : Form
         else _prevSourceIndex = idx;
     }
 
-    private Func<Rectangle> SelectedRegionProvider()
+    private SlideSource SelectedSlideSource()
     {
         int idx = _cmbSource.SelectedIndex;
-        if (idx < 0 || idx >= _sources.Count) return ScreenCapture.PrimaryBounds;
+        if (idx < 0 || idx >= _sources.Count)
+        {
+            var pm = ScreenCapture.PrimaryMonitor();
+            return SlideSource.FromMonitor(pm.Hmon, pm.Bounds);
+        }
         var src = _sources[idx];
         switch (src.Kind)
         {
-            case SrcKind.Window: var h = src.Hwnd; return () => ScreenCapture.WindowBounds(h);
-            case SrcKind.Monitor:
-            case SrcKind.Region: var rc = src.Rect; return () => rc;
-            default: return ScreenCapture.PrimaryBounds;
+            case SrcKind.Window: return SlideSource.FromWindow(src.Hwnd);
+            case SrcKind.Region:
+                var m = ScreenCapture.MonitorForRect(src.Rect);
+                return SlideSource.FromRegion(src.Rect, m.Hmon, m.Bounds);
+            default:
+                return SlideSource.FromMonitor(src.Hmon, src.Rect);
         }
     }
 
@@ -206,7 +214,7 @@ internal sealed class MainForm : Form
             EncodeAac = _chkAac.Checked,
             SilenceSeconds = (int)_numSilence.Value,
             Slides = _chkSlides.Checked,
-            RegionProvider = _chkSlides.Checked ? SelectedRegionProvider() : null,
+            SlideSource = _chkSlides.Checked ? SelectedSlideSource() : null,
             DocFormat = _cmbDoc.SelectedItem?.ToString() ?? "pdf",
             MeetingName = Program.GetMeetingName(app.Pid, app.ProcessName),
         };
