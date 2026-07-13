@@ -69,7 +69,7 @@ internal static class Program
     {
         uint pid = 0;
         string name = null, outPath = null, dirOverride = null;
-        bool includeTree = true, stopOnExit = true, slides = false, mic = false;
+        bool includeTree = true, stopOnExit = true, slides = false, mic = false, encodeAac = true;
         int seconds = 0, silence = 60, slideInterval = 1000, monitor = 0;
         string region = null, docFmt = "pdf";
 
@@ -84,6 +84,7 @@ internal static class Program
                     case "--out":      outPath = args[++i]; break;
                     case "--dir":      dirOverride = args[++i]; break;
                     case "--mic":      mic = true; break;
+                    case "--wav":      encodeAac = false; break;   // 默认转 AAC；--wav 保留无损
                     case "--seconds":  seconds = int.Parse(args[++i]); break;
                     case "--silence":  silence = int.Parse(args[++i]); break;
                     case "--no-exit-stop": stopOnExit = false; break;
@@ -120,6 +121,7 @@ internal static class Program
             Pid = pid,
             IncludeTree = includeTree,
             Mic = mic,
+            EncodeAac = encodeAac,
             SilenceSeconds = silence,
             StopOnExit = stopOnExit,
             Slides = slides,
@@ -141,6 +143,7 @@ internal static class Program
         Console.WriteLine($"目标: PID {pid} ({SafeProcName(pid)}){(includeTree ? " + 子进程" : " 排除模式")}");
         Console.WriteLine($"会议: {session.MeetingName}");
         Console.WriteLine($"输出: {session.WavPath}");
+        Console.WriteLine($"音频格式: {(encodeAac ? "AAC .m4a (96kbps，收尾自动转码压体积)" : "WAV 无损")}");
         if (mic) Console.WriteLine($"麦克风: {(session.MicActive ? "已混入" : "不可用，仅录应用声音")}");
         if (silence > 0) Console.WriteLine($"自动停止: 静音 {silence}s 或目标进程退出");
         if (slides) Console.WriteLine($"投屏抓帧: {session.Region.Width}x{session.Region.Height} @({session.Region.X},{session.Region.Y})，导出 {docFmt}");
@@ -161,7 +164,7 @@ internal static class Program
         }
 
         Console.WriteLine($"\n✔ 已停止（{reason}）");
-        Console.WriteLine($"  音频: {session.WavPath}");
+        Console.WriteLine($"  音频: {session.AudioPath}");
         if (slides)
         {
             Console.WriteLine($"  slide: {session.SlideCount} 张 → {session.SlidesDir}");

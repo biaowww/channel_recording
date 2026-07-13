@@ -19,7 +19,8 @@ internal sealed class MainForm : Form
     private readonly ComboBox _cmbTarget = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Button _btnRefresh = new() { Text = "刷新" };
     private readonly CheckBox _chkTree = new() { Text = "含子进程", Checked = true };
-    private readonly CheckBox _chkMic = new() { Text = "同时录我的麦克风" };
+    private readonly CheckBox _chkMic = new() { Text = "录麦克风" };
+    private readonly CheckBox _chkAac = new() { Text = "音频转 AAC(小)", Checked = true };
     private readonly CheckBox _chkSlides = new() { Text = "抓投屏 PPT（自动换页存图 → PDF/Word）" };
     private readonly ComboBox _cmbSource = new() { DropDownStyle = ComboBoxStyle.DropDownList, Enabled = false };
     private readonly ComboBox _cmbDoc = new() { DropDownStyle = ComboBoxStyle.DropDownList, Enabled = false };
@@ -55,8 +56,9 @@ internal sealed class MainForm : Form
         _cmbTarget.SetBounds(86, 14, 290, 24);
         _btnRefresh.SetBounds(386, 13, 80, 26);
 
-        _chkTree.SetBounds(86, 48, 110, 22);
-        _chkMic.SetBounds(206, 48, 180, 22);
+        _chkTree.SetBounds(86, 48, 84, 22);
+        _chkMic.SetBounds(176, 48, 92, 22);
+        _chkAac.SetBounds(276, 48, 150, 22);
         _chkSlides.SetBounds(86, 76, 380, 22);
 
         var lblSrc = new Label { Text = "投屏来源:", Location = new Point(14, 112), AutoSize = true };
@@ -79,7 +81,7 @@ internal sealed class MainForm : Form
 
         Controls.AddRange(new Control[]
         {
-            lblT, _cmbTarget, _btnRefresh, _chkTree, _chkMic, _chkSlides,
+            lblT, _cmbTarget, _btnRefresh, _chkTree, _chkMic, _chkAac, _chkSlides,
             lblSrc, _cmbSource, lblDoc, _cmbDoc, lblSil, _numSilence, lblExit,
             _btnStart, _btnStop, _btnOpen, _lblStatus, _lblStats,
         });
@@ -201,6 +203,7 @@ internal sealed class MainForm : Form
             Pid = app.Pid,
             IncludeTree = _chkTree.Checked,
             Mic = _chkMic.Checked,
+            EncodeAac = _chkAac.Checked,
             SilenceSeconds = (int)_numSilence.Value,
             Slides = _chkSlides.Checked,
             RegionProvider = _chkSlides.Checked ? SelectedRegionProvider() : null,
@@ -275,7 +278,7 @@ internal sealed class MainForm : Form
                 _lblStatus.Text = $"✔ 已停止（{reason}）";
                 if (s != null)
                 {
-                    var lines = new List<string> { "音频: " + s.WavPath };
+                    var lines = new List<string> { "音频: " + s.AudioPath };
                     if (s.Slides) lines.Add($"slide: {s.SlideCount} 张  →  {s.SlidesDir}");
                     foreach (var d in s.DocPaths) lines.Add("文档: " + d);
                     _lblStats.Text = string.Join(Environment.NewLine, lines);
@@ -319,7 +322,7 @@ internal sealed class MainForm : Form
         _btnStop.Enabled = canStop;
         bool inputs = canStart;
         _cmbTarget.Enabled = _btnRefresh.Enabled = inputs;
-        _chkTree.Enabled = _chkMic.Enabled = _chkSlides.Enabled = inputs;
+        _chkTree.Enabled = _chkMic.Enabled = _chkAac.Enabled = _chkSlides.Enabled = inputs;
         _numSilence.Enabled = inputs;
         _cmbSource.Enabled = _cmbDoc.Enabled = inputs && _chkSlides.Checked;
     }

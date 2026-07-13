@@ -14,6 +14,8 @@ internal sealed class RecordingSession
     public uint Pid;
     public bool IncludeTree = true;
     public bool Mic;
+    public bool EncodeAac = true;       // 录完转 AAC(.m4a) 压体积；false=保留 WAV
+    public int AacBitrate = 96000;      // 96kbps 立体声 ≈ 0.7MB/分（200MB≈4.6小时）
     public int SilenceSeconds = 60;     // 0 = 关闭静音停止
     public bool StopOnExit = true;
     public bool Slides;
@@ -29,6 +31,7 @@ internal sealed class RecordingSession
     public string RecordingDir { get; private set; }
     public string SessionBase { get; private set; }
     public string WavPath { get; private set; }
+    public string AudioPath { get; private set; }   // 最终音频路径（.m4a 或 .wav）
     public string SlidesDir { get; private set; }
     public string[] DocPaths { get; private set; } = Array.Empty<string>();
     public bool MicRequested => Mic;
@@ -159,6 +162,21 @@ internal sealed class RecordingSession
         _sw.Stop();
         IsRunning = false;
 
+        // 音频收尾：默认把 WAV 转成 AAC(.m4a) 压体积并删掉大 WAV；转码失败则保留 WAV
+        AudioPath = WavPath;
+        string audioErr = null;
+        if (EncodeAac && File.Exists(WavPath))
+        {
+            try
+            {
+                string m4a = Path.ChangeExtension(WavPath, ".m4a");
+                AudioEncoder.WavToAac(WavPath, m4a, AacBitrate);
+                AudioPath = m4a;
+                try { File.Delete(WavPath); } catch { }
+            }
+            catch (Exception ex) { audioErr = ex.Message; AudioPath = WavPath; }
+        }
+
         // 文档导出可能抛（输出被占用/磁盘满/图片被删等）——绝不能因此跳过 Stopped，否则上层会卡死
         string buildErr = null;
         try
@@ -177,6 +195,7 @@ internal sealed class RecordingSession
         lock (_gate) { _state = SState.Done; }
 
         string reason = _stopReason ?? "已停止";
+        if (audioErr != null) reason += $"（AAC 转码失败，已保留 WAV: {audioErr}）";
         if (buildErr != null) reason += $"（文档导出失败: {buildErr}）";
         try { Stopped?.Invoke(reason); } catch { }   // 订阅者异常不得反噬收尾线程
     }
