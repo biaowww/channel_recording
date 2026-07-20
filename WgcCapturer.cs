@@ -56,8 +56,20 @@ internal sealed class WgcCapturer : IDisposable
     private readonly object _frameLock = new();   // 串行化 OnFrameArrived 与 Dispose，避免停止时用已释放的 pool/device
     private volatile bool _disposed;
 
-    public static WgcCapturer ForWindow(IntPtr hwnd) => new(CreateItemForWindow(hwnd));
-    public static WgcCapturer ForMonitor(IntPtr hmon) => new(CreateItemForMonitor(hmon));
+    // 窗口源的"真实尺寸"探针：帧池按它建/重建，避免开始那一刻窗口很小导致全程低分辨率
+    private readonly Func<SizeInt32?> _liveSize;
+
+    /// <summary>当前实际抓取分辨率（界面可显示，便于一眼发现抓错/抓小）。</summary>
+    public int CaptureWidth { get { lock (_gate) return _w; } }
+    public int CaptureHeight { get { lock (_gate) return _h; } }
+
+    public static WgcCapturer ForWindow(IntPtr hwnd) => new(CreateItemForWindow(hwnd), () =>
+    {
+        var r = ScreenCapture.WindowBounds(hwnd);
+        return (r.Width > 0 && r.Height > 0) ? new SizeInt32 { Width = r.Width, Height = r.Height } : null;
+    });
+
+    public static WgcCapturer ForMonitor(IntPtr hmon) => new(CreateItemForMonitor(hmon), null);
 
     private static GraphicsCaptureItem CreateItemForWindow(IntPtr hwnd)
     {
@@ -107,12 +119,15 @@ internal sealed class WgcCapturer : IDisposable
         }
     }
 
-    private WgcCapturer(GraphicsCaptureItem item)
+    private WgcCapturer(GraphicsCaptureItem item, Func<SizeInt32?> liveSize)
     {
+        _liveSize = liveSize;
         _device = CreateD3DDevice();
         try
         {
-            _poolSize = item.Size;
+            // 优先用窗口真实尺寸；item.Size 可能是小窗/过期值（曾导致整场只抓到 379x263）
+            var want = liveSize?.Invoke();
+            _poolSize = (want is SizeInt32 s && s.Width > 0 && s.Height > 0) ? s : item.Size;
             _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(
                 _device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _poolSize);
             _pool.FrameArrived += OnFrameArrived;
@@ -144,10 +159,13 @@ internal sealed class WgcCapturer : IDisposable
                     try { ReadFrame(frame); } catch { }
                 }
 
-                var cs = frame.ContentSize;
-                if (cs.Width != _poolSize.Width || cs.Height != _poolSize.Height)
+                // 期望尺寸：窗口源用窗口真实尺寸（跟随最大化/改大小），否则用内容尺寸
+                var live = _liveSize?.Invoke();
+                var want = (live is SizeInt32 ls && ls.Width > 0 && ls.Height > 0) ? ls : frame.ContentSize;
+                if (want.Width > 0 && want.Height > 0 &&
+                    (want.Width != _poolSize.Width || want.Height != _poolSize.Height))
                 {
-                    _poolSize = cs;
+                    _poolSize = want;
                     try { _pool.Recreate(_device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _poolSize); } catch { }
                 }
             }
@@ -163,7 +181,11 @@ internal sealed class WgcCapturer : IDisposable
         var sb = converted ?? raw;
         try
         {
-            int w = sb.PixelWidth, h = sb.PixelHeight;
+            // 帧池缓冲可能大于真实内容（窗口刚变小时），只取左上角 ContentSize 区域，避免带进无效边缘
+            var content = frame.ContentSize;
+            int bw = sb.PixelWidth, bh = sb.PixelHeight;
+            int w = (content.Width > 0 && content.Width < bw) ? content.Width : bw;
+            int h = (content.Height > 0 && content.Height < bh) ? content.Height : bh;
             var px = new byte[w * h * 4];
             using (var buf = sb.LockBuffer(BitmapBufferAccessMode.Read))
             using (var reference = buf.CreateReference())

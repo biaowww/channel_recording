@@ -41,6 +41,10 @@ internal sealed class LoopbackCapture : IActivateAudioInterfaceCompletionHandler
     /// <summary>是否曾经检测到声音（静音停止只在有过声音后才生效）。</summary>
     public bool HasDetectedSound => Interlocked.Read(ref _soundEverDetected) != 0;
 
+    private volatile int _peak;   // 最近一个缓冲的 16-bit 峰值
+    /// <summary>实时音量 0..100（开方压缩，便于肉眼看条）。</summary>
+    public int Level => (int)(Math.Sqrt(Math.Min(_peak, 32767) / 32768.0) * 100);
+
     /// <summary>距离最近一次“有声音”过去了多少秒。</summary>
     public double SecondsSinceSound
     {
@@ -198,6 +202,7 @@ internal sealed class LoopbackCapture : IActivateAudioInterfaceCompletionHandler
                 if ((flags & AudClnt.BufferFlagsSilent) != 0)
                 {
                     Array.Clear(_buffer, 0, bytes);      // 静音包：写零，保持时间轴对齐
+                    _peak = 0;                            // 音量条归零
                 }
                 else
                 {
@@ -233,16 +238,17 @@ internal sealed class LoopbackCapture : IActivateAudioInterfaceCompletionHandler
         }
     }
 
-    /// <summary>扫描 16-bit PCM 取峰值；超过阈值则刷新“最近有声音”时间。</summary>
+    /// <summary>扫描 16-bit PCM 取峰值；超过阈值则刷新”最近有声音”时间，并记录音量供界面显示。</summary>
     private void UpdateLevel(byte[] buf, int bytes)
     {
         int peak = 0;
-        for (int i = 0; i + 1 < bytes; i += 2)
+        for (int i = 0; i + 1 < bytes; i += 2)   // 取真实峰值（不提前 break），音量条才准
         {
             int s = (short)(buf[i] | (buf[i + 1] << 8));
             int a = s < 0 ? -s : s;
-            if (a > peak) { peak = a; if (peak > SilenceThreshold) break; }
+            if (a > peak) peak = a;
         }
+        _peak = peak;
         if (peak > SilenceThreshold)
         {
             Interlocked.Exchange(ref _lastSoundTicks, DateTime.UtcNow.Ticks);

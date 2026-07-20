@@ -42,6 +42,10 @@ internal sealed class RecordingSession
     public int SlideCount => _slideCap?.Count ?? 0;
     public bool HasSound => _capture?.HasDetectedSound ?? false;
     public double SecondsSinceSound => _capture?.SecondsSinceSound ?? 0;
+    public int Level => _capture?.Level ?? 0;                 // 0..100 实时音量，界面画音量条
+    /// <summary>当前投屏抓取分辨率，如 "1920x1080"；未用 WGC 或还没帧则 null。</summary>
+    public string CaptureInfo =>
+        (_wgc != null && _wgc.CaptureWidth > 0) ? $"{_wgc.CaptureWidth}x{_wgc.CaptureHeight}" : null;
 
     /// <summary>停止并收尾完成后触发一次（含 WAV 收尾与文档导出），参数为停止原因。可能在后台线程触发。</summary>
     public event Action<string> Stopped;

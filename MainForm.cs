@@ -14,6 +14,8 @@ internal sealed class MainForm : Form
         public Rectangle Rect;    // Monitor=显示器边界；Region=框选矩形
         public IntPtr Hwnd;       // Window
         public IntPtr Hmon;       // Monitor
+        public uint Pid;          // Window 所属进程（用于和录音目标比对）
+        public string Proc;
         public string Label;
     }
 
@@ -111,15 +113,16 @@ internal sealed class MainForm : Form
     {
         _cmbTarget.Items.Clear();
         try { _targets = AudioSessionLister.List(); } catch { _targets = new(); }
+        _cmbTarget.Items.Add("— 请选择要录的程序 —");   // 占位项(index 0)，真实目标从 index 1 开始
         foreach (var a in _targets)
         {
             string t = string.IsNullOrWhiteSpace(a.Title) ? "" : "  " + a.Title;
             _cmbTarget.Items.Add($"{a.ProcessName} ({a.Pid}){t}");
         }
-        if (_cmbTarget.Items.Count > 0) _cmbTarget.SelectedIndex = 0;
+        _cmbTarget.SelectedIndex = 0;   // 停在占位项：必须手动选，避免默认录成列表里第一个程序
         _lblStatus.Text = _targets.Count == 0
             ? "没检测到在发声的应用。先让会议/目标出点声音，再点“刷新”。"
-            : "就绪。选择目标后点“开始录制”。";
+            : "请先在「录制目标」选要录哪个程序的声音（与下面的「投屏来源」是两回事）。";
     }
 
     private void RefreshSources()
@@ -138,7 +141,7 @@ internal sealed class MainForm : Form
         {
             foreach (var w in ScreenCapture.Windows())
                 if (w.Pid != _ownPid)
-                    _sources.Add(new Source { Kind = SrcKind.Window, Hwnd = w.Hwnd, Label = $"🪟 {Trunc(w.Title, 30)} ({w.Process})" });
+                    _sources.Add(new Source { Kind = SrcKind.Window, Hwnd = w.Hwnd, Pid = w.Pid, Proc = w.Process, Label = $"🪟 {Trunc(w.Title, 30)} ({w.Process})" });
         }
         catch { }
 
@@ -200,13 +203,33 @@ internal sealed class MainForm : Form
 
     private async void OnStart(object sender, EventArgs e)
     {
-        if (_cmbTarget.SelectedIndex < 0 || _cmbTarget.SelectedIndex >= _targets.Count)
+        // index 0 是占位项；真实目标从 1 开始。必须显式选，杜绝"默认录成列表第一个"
+        if (_cmbTarget.SelectedIndex <= 0 || _cmbTarget.SelectedIndex > _targets.Count)
         {
-            MessageBox.Show(this, "请选择要录制的应用。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this,
+                "请先在「录制目标」里选择要录哪个程序的声音。\n\n" +
+                "注意：「录制目标」决定录音，下面的「投屏来源」只决定抓画面，两者是分开的。",
+                "还没选录制目标", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
-        var app = _targets[_cmbTarget.SelectedIndex];
+        var app = _targets[_cmbTarget.SelectedIndex - 1];
+
+        // 录音目标与投屏来源不是同一个程序时提醒（上次就是录音选成 chrome、投屏选了企业微信）
+        if (_chkSlides.Checked)
+        {
+            int si = _cmbSource.SelectedIndex;
+            if (si >= 0 && si < _sources.Count && _sources[si].Kind == SrcKind.Window &&
+                _sources[si].Pid != 0 && _sources[si].Pid != app.Pid)
+            {
+                var ans = MessageBox.Show(this,
+                    $"录音目标：{app.ProcessName} (PID {app.Pid})\n" +
+                    $"投屏来源：{_sources[si].Proc} (PID {_sources[si].Pid})\n\n" +
+                    "两者不是同一个程序 —— 会录前者的声音、抓后者的画面。确定要这样吗？",
+                    "录音目标 与 投屏来源 不一致", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (ans != DialogResult.Yes) return;
+            }
+        }
         var session = new RecordingSession
         {
             Pid = app.Pid,
@@ -267,9 +290,20 @@ internal sealed class MainForm : Form
     {
         var s = _session;
         if (s == null || !_recording) return;
-        string slide = _chkSlides.Checked ? $"   slide {s.SlideCount}" : "";
-        string sil = (s.SilenceSeconds > 0 && s.HasSound) ? $"   静音 {s.SecondsSinceSound:F0}/{s.SilenceSeconds}s" : "";
-        _lblStats.Text = $"时长 {s.Elapsed:hh\\:mm\\:ss}   {s.Bytes / 1024.0 / 1024.0:F1} MB{slide}{sil}";
+        int filled = Math.Max(0, Math.Min(10, s.Level / 10));
+        string bar = new string('█', filled) + new string('·', 10 - filled);
+        string warn = s.HasSound ? "" : "   ← 一直没听到声音，检查录制目标选对没";
+        string line1 = $"时长 {s.Elapsed:hh\\:mm\\:ss}   {s.Bytes / 1024.0 / 1024.0:F1} MB   音量 [{bar}]{warn}";
+
+        var lines = new List<string> { line1 };
+        if (_chkSlides.Checked)
+        {
+            string cap = s.CaptureInfo != null ? $"   抓取 {s.CaptureInfo}" : "";
+            lines.Add($"slide {s.SlideCount}{cap}");
+        }
+        if (s.SilenceSeconds > 0 && s.HasSound)
+            lines.Add($"静音 {s.SecondsSinceSound:F0}/{s.SilenceSeconds}s 后自动停");
+        _lblStats.Text = string.Join(Environment.NewLine, lines);
     }
 
     private void OnSessionStopped(string reason)
