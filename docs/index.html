@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ChannelRecorder · 无人值守录音录屏器</title>
-<meta name="description" content="录指定程序的声音 + 自动抓投屏画面，导出音频与 PDF。开会、播客、网课、网页，开录就不用管。Windows 免费开源。">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+<meta name="description" content="只录你指定那个程序的声音，同时把投屏画面按翻页自动存图、合成 PDF。开会、网课、播客，开着录就不用管。Windows 免费开源。">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
 <style>
   :root{
     --bg:#fbfaf8; --fg:#17161a; --muted:#6b6a72; --line:#e6e3dd;
-    --card:#ffffff; --accent:#d9531e; --accent-soft:#fdf0e9;
+    --card:#fff; --accent:#d9531e; --accent-soft:#fdf0e9; --shot:#f3f0ea;
   }
   @media (prefers-color-scheme:dark){
     :root{ --bg:#131316; --fg:#f2f1ef; --muted:#a3a1ab; --line:#2b2b31;
-           --card:#1b1b1f; --accent:#ff7a45; --accent-soft:#2a1b14; }
+           --card:#1b1b1f; --accent:#ff7a45; --accent-soft:#2a1b14; --shot:#0e0e10; }
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
@@ -21,9 +21,10 @@
     -webkit-font-smoothing:antialiased}
   .wrap{max-width:880px;margin:0 auto;padding:0 24px}
   a{color:inherit}
+  svg{display:block}
 
-  header{padding:88px 0 64px;text-align:center}
-  .logo{font-size:56px;line-height:1;margin-bottom:20px}
+  header{padding:80px 0 40px;text-align:center}
+  header img.logo{width:72px;height:72px;margin:0 auto 22px;border-radius:16px}
   h1{font-size:clamp(30px,5.2vw,46px);line-height:1.25;margin:0 0 16px;letter-spacing:-.02em}
   .sub{font-size:clamp(16px,2.3vw,19px);color:var(--muted);margin:0 auto 34px;max-width:33em}
   .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
@@ -35,13 +36,20 @@
   .btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
   .meta{font-size:13.5px;color:var(--muted)}
 
+  .shotwrap{padding:12px 0 64px;text-align:center}
+  .shotbox{display:inline-block;background:var(--shot);border:1px solid var(--line);
+    border-radius:16px;padding:26px 26px 22px;max-width:100%}
+  .shotbox img{max-width:100%;height:auto;border-radius:8px;
+    box-shadow:0 10px 30px rgba(0,0,0,.16),0 2px 6px rgba(0,0,0,.08)}
+  .shotcap{margin:16px 0 0;font-size:13.5px;color:var(--muted)}
+
   section{padding:46px 0;border-top:1px solid var(--line)}
   h2{font-size:21px;margin:0 0 26px;letter-spacing:-.01em}
   .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .card svg{width:22px;height:22px;margin-bottom:12px;color:var(--fg);opacity:.85}
   .card h3{margin:0 0 8px;font-size:16.5px}
   .card p{margin:0;color:var(--muted);font-size:14.5px;line-height:1.7}
-  .ico{font-size:22px;display:block;margin-bottom:10px}
 
   ol.steps{counter-reset:s;list-style:none;padding:0;margin:0;display:grid;gap:14px}
   ol.steps li{counter-increment:s;position:relative;padding-left:44px;color:var(--muted);font-size:15px}
@@ -62,13 +70,14 @@
   .notice p{margin:0;font-size:14px;color:var(--muted)}
   .notice b{color:var(--fg)}
 
-  details{border-bottom:1px solid var(--line);padding:14px 0}
+  details{border-bottom:1px solid var(--line);padding:15px 0}
   details:last-of-type{border-bottom:0}
   summary{cursor:pointer;font-weight:600;font-size:15.5px;list-style:none}
   summary::-webkit-details-marker{display:none}
   summary::before{content:"＋";color:var(--accent);margin-right:10px;font-weight:700}
   details[open] summary::before{content:"－"}
-  details p{margin:10px 0 0 26px;color:var(--muted);font-size:14.5px}
+  details p{margin:12px 0 0 26px;color:var(--muted);font-size:14.5px;line-height:1.8}
+  details p b{color:var(--fg)}
 
   footer{padding:40px 0 60px;text-align:center;color:var(--muted);font-size:13.5px;border-top:1px solid var(--line)}
   footer a{color:var(--accent);text-decoration:none}
@@ -78,7 +87,7 @@
 <div class="wrap">
 
   <header>
-    <div class="logo">🎙️</div>
+    <img class="logo" src="icon.svg" alt="ChannelRecorder">
     <h1>开着录就行,剩下的它自己来</h1>
     <p class="sub">
       只录<b>你指定的那个程序</b>的声音,同时把画面按翻页自动存图 ——
@@ -91,46 +100,77 @@
     <p class="meta">开源免费 · MIT · 下载即用,不用装任何运行环境 · Windows 10 (2004+) / 11</p>
   </header>
 
+  <div class="shotwrap">
+    <div class="shotbox">
+      <img src="screenshot.png" alt="ChannelRecorder 主界面" width="482" height="419">
+      <p class="shotcap">整个程序就这一个窗口 —— 选目标、勾选项、点开始,没有别的了。</p>
+    </div>
+  </div>
+
   <section>
     <h2>它解决什么</h2>
     <div class="grid">
+
       <div class="card">
-        <span class="ico">🎯</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>
+          <path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/>
+        </svg>
         <h3>只录那一个程序</h3>
         <p>指定哪个程序,就只录它的声音。你的微信提示音、音乐、键盘声都不会混进去 —— 不是"录整个电脑"。</p>
       </div>
+
       <div class="card">
-        <span class="ico">🖼️</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <rect x="2.5" y="4" width="19" height="13" rx="2.5"/>
+          <path d="M8 21h8M12 17v4"/>
+          <path d="M8 9v3M11 7.5v6M14 9.5v2M17 10.5v.5"/>
+        </svg>
         <h3>有音,也有画</h3>
         <p>自动识别投屏翻页,每一页存成图片,收工时合成一个 PDF / Word。听回放时对得上当时在讲哪一页。</p>
       </div>
+
       <div class="card">
-        <span class="ico">🤖</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <circle cx="12" cy="12" r="9"/><path d="M12 6.5V12l3.5 2.2"/>
+        </svg>
         <h3>无人值守</h3>
         <p>会议软件关掉、或安静超过设定时间,它自己停、自己把音频压成小文件。你可以放着去干别的。</p>
       </div>
+
       <div class="card">
-        <span class="ico">🎤</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <rect x="9" y="2.5" width="6" height="11" rx="3"/>
+          <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>
+        </svg>
         <h3>可以带上你自己</h3>
         <p>勾一下就把麦克风混进同一个文件 —— 对方说的和你说的,都在一条音轨里。</p>
       </div>
+
       <div class="card">
-        <span class="ico">🗜️</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <path d="M12 3v9m0 0 3.5-3.5M12 12 8.5 8.5"/>
+          <path d="M4 14v4.5A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5V14"/>
+        </svg>
         <h3>文件不会大到没法用</h3>
         <p>自动转成 AAC,约 0.7MB/分钟。两小时的会大概 80MB,微信能发、网盘能传。</p>
       </div>
+
       <div class="card">
-        <span class="ico">🪟</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M2 6h14a2 2 0 0 1 2 2v14"/>
+        </svg>
         <h3>想录哪块自己划</h3>
         <p>整块屏幕、某个窗口(会跟着窗口走)、或者鼠标拖一个框 —— 只要 PPT 那一块也行。</p>
       </div>
+
     </div>
   </section>
 
   <section>
     <h2>三步开录</h2>
     <ol class="steps">
-      <li><strong>选要录的程序</strong> —— 列表里挑,正在出声的会标 🔊</li>
+      <li><strong>选要录的程序</strong> —— 列表里挑,正在出声的会标出来</li>
       <li><strong>勾要不要抓画面</strong> —— 要的话再选录屏幕的哪一块</li>
       <li><strong>点开始,然后就不用管了</strong> —— 结束后音频和 PDF 都在你指定的文件夹里</li>
     </ol>
@@ -153,8 +193,8 @@
     <div class="why">
       <p>
         它录的是声音<b>播放到系统之后</b>的那一路 —— 也就是<b>你耳朵听到的那份</b>,
-        而不是去调用某个软件自带的录制功能。所以它<b>不依赖对方软件给不给"录制权限"</b>。
-        画面走的是 Windows 现代捕获接口,硬件加速的内容也不会花屏,窗口被挡住也照抓。
+        而不是去调用某个软件自带的录制功能。画面走的是 Windows 现代捕获接口,
+        硬件加速的内容也不会花屏,窗口被挡住也照抓。
       </p>
     </div>
   </section>
@@ -172,26 +212,54 @@
 
   <section>
     <h2>常见问题</h2>
+
     <details>
-      <summary>要装什么吗?</summary>
-      <p>不用。下载下来是一个 exe,双击就开。运行环境已经打包在里面了(所以文件有点大,约 176MB)。</p>
+      <summary>要装什么东西吗?</summary>
+      <p><b>不用。</b>下载下来就是一个 exe,双击直接开。.NET 运行环境已经打包在里面了 —— 这也是文件有 176MB 的原因。
+      <b>不需要管理员权限</b>,不写注册表、不装驱动。不想要了,直接把这个 exe 删掉就干净了。</p>
     </details>
+
     <details>
-      <summary>只能 Windows?</summary>
-      <p>是的。它用的是 Windows 才有的进程级音频捕获(需要 Win10 2004 / build 19041 以上,Win11 直接可用)。</p>
+      <summary>只能 Windows 用?Mac 行不行?</summary>
+      <p><b>目前只能 Windows,而且需要 Windows 10 版本 2004(build 19041)或更新</b>,Windows 11 直接可用。
+      因为它依赖的是 Windows 才有的<b>「进程级音频捕获」</b>接口 —— 正是这个接口让它能只录某一个程序,而不是整台电脑的声音。
+      macOS 系统层面没有等价的开放接口,所以暂时做不了。</p>
     </details>
+
     <details>
-      <summary>录出来的文件放哪?</summary>
-      <p>界面上「存放位置」那一行随时看得到,可以改成你想要的任意文件夹,改完会记住。旁边有按钮一键打开。</p>
+      <summary>录出来的文件放在哪?会不会找不到?</summary>
+      <p>界面上有一行 <b>「存放位置」,随时显示完整路径</b>,不用猜。旁边「更改…」可以改到任意文件夹,
+      <b>改完会记住</b>,下次打开还是它;右下角「打开录音文件夹」一键跳过去。
+      默认位置是 <b>我的文档 \ ChannelRecorder</b>。</p>
     </details>
+
     <details>
-      <summary>录出来没声音怎么办?</summary>
-      <p>八成是「录制目标」选错了程序。录制时界面有实时音量条,一直是空的就说明选错了,当场就能发现,不用等录完。</p>
+      <summary>录出来没声音,怎么回事?</summary>
+      <p><b>八成是「录制目标」选错了程序。</b>注意界面上有两个下拉,管的是两件事:
+      上面的<b>「录制目标」决定录谁的声音</b>,下面的「投屏来源」只决定抓谁的画面。
+      要录会议,<b>「录制目标」也得选成会议软件</b>(只在「投屏来源」里选它是不够的)。
+      另外录制过程中界面有<b>实时音量条</b>,一直是空的就说明选错了 —— 当场就能发现,不用等录完才知道。</p>
     </details>
+
     <details>
-      <summary>收费吗?会不会传我的东西?</summary>
-      <p>完全免费、开源(MIT)。全程只在你自己电脑上跑,不联网、不上传任何内容。源码在 GitHub 上,可以自己看。</p>
+      <summary>录到一半换了耳机 / 切了音响,会不会就录不到了?</summary>
+      <p><b>不会。</b>它抓的是那个程序自己产生的音频流,<b>不绑定具体的输出设备</b>,
+      中途换耳机、换声卡、改系统默认输出都不影响录制。</p>
     </details>
+
+    <details>
+      <summary>抓到的 PPT 有点糊?</summary>
+      <p>它抓的就是<b>画面在你屏幕上的实际像素</b>,屏幕上显示得小,存下来就小。
+      所以<b>把会议窗口最大化</b>再录最清楚。录制中界面会显示当前<b>「抓取 1920x1080」</b>这样的分辨率,
+      数字太小就说明窗口太小或者选错了窗口,可以当场重来。</p>
+    </details>
+
+    <details>
+      <summary>收费吗?会不会把我的东西传走?</summary>
+      <p><b>完全免费,MIT 开源。</b>全程只在你自己电脑上跑,<b>不联网、不上传任何音频或画面</b>。
+      源码全部公开在 GitHub,可以自己查、自己编译一份来用。</p>
+    </details>
+
   </section>
 
   <footer>

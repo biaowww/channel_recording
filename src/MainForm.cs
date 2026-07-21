@@ -53,6 +53,7 @@ internal sealed class MainForm : Form
     public MainForm()
     {
         Text = "ChannelRecorder · 定向录音";
+        try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath); } catch { }   // 标题栏/任务栏图标
         Font = new Font("Microsoft YaHei UI", 9f);
         ClientSize = new Size(480, 380);
         FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -63,9 +64,9 @@ internal sealed class MainForm : Form
         _cmbTarget.SetBounds(86, 14, 290, 24);
         _btnRefresh.SetBounds(386, 13, 80, 26);
 
-        _chkTree.SetBounds(86, 48, 84, 22);
-        _chkMic.SetBounds(176, 48, 92, 22);
-        _chkAac.SetBounds(276, 48, 150, 22);
+        _chkTree.SetBounds(86, 48, 94, 22);
+        _chkMic.SetBounds(186, 48, 94, 22);
+        _chkAac.SetBounds(286, 48, 150, 22);
         _chkSlides.SetBounds(86, 76, 380, 22);
 
         var lblSrc = new Label { Text = "投屏来源:", Location = new Point(14, 112), AutoSize = true };
