@@ -99,6 +99,8 @@ internal sealed class MainForm : Form
             if (_chkSlides.Checked) RefreshSources();
         };
         _cmbSource.SelectedIndexChanged += OnSourceChanged;
+        // 换了录制目标就重排投屏来源，让同一程序的窗口置顶标 ⭐
+        _cmbTarget.SelectedIndexChanged += (_, _) => { if (!_recording && !_starting && _chkSlides.Checked) RefreshSources(); };
         _btnRefresh.Click += (_, _) => { RefreshTargets(); RefreshSources(); };
         _btnStart.Click += OnStart;
         _btnStop.Click += OnStopClicked;
@@ -166,9 +168,21 @@ internal sealed class MainForm : Form
 
         try
         {
-            foreach (var w in ScreenCapture.Windows())
-                if (w.Pid != _ownPid)
-                    _sources.Add(new Source { Kind = SrcKind.Window, Hwnd = w.Hwnd, Pid = w.Pid, Proc = w.Process, Label = $"🪟 {Trunc(w.Title, 30)} ({w.Process})" });
+            // 进程名放前面（标题长也不会把进程名挤没），并把"和录制目标同一个程序"的窗口置顶标 ⭐
+            string targetProc = SelectedTargetProcName();
+            var wins = ScreenCapture.Windows().Where(w => w.Pid != _ownPid).ToList();
+            bool Same(WindowInfo w) => targetProc != null &&
+                string.Equals(w.Process, targetProc, StringComparison.OrdinalIgnoreCase);
+
+            foreach (var w in wins.Where(Same).Concat(wins.Where(x => !Same(x))))
+                _sources.Add(new Source
+                {
+                    Kind = SrcKind.Window,
+                    Hwnd = w.Hwnd,
+                    Pid = w.Pid,
+                    Proc = w.Process,
+                    Label = (Same(w) ? "⭐ " : "🪟 ") + $"{w.Process} — {Trunc(w.Title, 24)}",
+                });
         }
         catch { }
 
@@ -206,6 +220,13 @@ internal sealed class MainForm : Form
             }
         }
         else _prevSourceIndex = idx;
+    }
+
+    /// <summary>当前「录制目标」的进程名（未选则 null），用于把同一程序的窗口置顶标 ⭐。</summary>
+    private string SelectedTargetProcName()
+    {
+        int i = _cmbTarget.SelectedIndex;
+        return (i > 0 && i <= _targets.Count) ? _targets[i - 1].ProcessName : null;
     }
 
     private SlideSource SelectedSlideSource()
@@ -246,8 +267,10 @@ internal sealed class MainForm : Form
         if (_chkSlides.Checked)
         {
             int si = _cmbSource.SelectedIndex;
+            // 按进程名比，不按 PID —— chrome/企业微信 这类多进程程序，窗口 PID 和发声 PID 本来就不同
             if (si >= 0 && si < _sources.Count && _sources[si].Kind == SrcKind.Window &&
-                _sources[si].Pid != 0 && _sources[si].Pid != app.Pid)
+                !string.IsNullOrEmpty(_sources[si].Proc) &&
+                !string.Equals(_sources[si].Proc, app.ProcessName, StringComparison.OrdinalIgnoreCase))
             {
                 var ans = MessageBox.Show(this,
                     $"录音目标：{app.ProcessName} (PID {app.Pid})\n" +
