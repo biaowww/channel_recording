@@ -30,6 +30,7 @@ internal static class Program
             return args[0].ToLowerInvariant() switch
             {
                 "list"   => CmdList(),
+                "audiodiag" => CmdAudioDiag(),
                 "record" => CmdRecord(args[1..]),
                 _        => Unknown(args[0]),
             };
@@ -62,6 +63,12 @@ internal static class Program
         }
         Console.WriteLine("\n示例: ChannelRecorder record --pid <PID> --mic --slides");
         Console.WriteLine("（直接双击 ChannelRecorder.exe 或运行 gui.bat 可打开图形界面）");
+        return 0;
+    }
+
+    private static int CmdAudioDiag()   // 临时诊断
+    {
+        foreach (var l in AudioSessionLister.Diagnose()) Console.WriteLine(l);
         return 0;
     }
 

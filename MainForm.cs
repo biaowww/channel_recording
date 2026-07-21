@@ -112,17 +112,44 @@ internal sealed class MainForm : Form
     private void RefreshTargets()
     {
         _cmbTarget.Items.Clear();
-        try { _targets = AudioSessionLister.List(); } catch { _targets = new(); }
-        _cmbTarget.Items.Add("— 请选择要录的程序 —");   // 占位项(index 0)，真实目标从 index 1 开始
-        foreach (var a in _targets)
+
+        // 正在发声的（音频会话）——只是"发现列表"，程序一停出声 Windows 就回收会话
+        List<AudioApp> audio;
+        try { audio = AudioSessionLister.List(); } catch { audio = new(); }
+
+        // 其它有窗口的运行中程序 —— 进程回环对任意 PID 都能录，不必等它出声（如刚打开还没播的 chrome）
+        var others = new List<AudioApp>();
+        try
         {
-            string t = string.IsNullOrWhiteSpace(a.Title) ? "" : "  " + a.Title;
-            _cmbTarget.Items.Add($"{a.ProcessName} ({a.Pid}){t}");
+            var have = audio.Select(a => a.Pid).ToHashSet();
+            foreach (var p in Process.GetProcesses())
+            {
+                try
+                {
+                    if (p.Id != _ownPid && p.MainWindowHandle != IntPtr.Zero &&
+                        !have.Contains((uint)p.Id) && !string.IsNullOrWhiteSpace(p.MainWindowTitle))
+                        others.Add(new AudioApp((uint)p.Id, p.ProcessName, p.MainWindowTitle));
+                }
+                catch { }
+                finally { p.Dispose(); }
+            }
         }
+        catch { }
+        others = others.OrderBy(o => o.ProcessName, StringComparer.OrdinalIgnoreCase).ToList();
+
+        _targets = new List<AudioApp>();
+        _targets.AddRange(audio);
+        _targets.AddRange(others);
+
+        _cmbTarget.Items.Add("— 请选择要录的程序 —");   // 占位项(index 0)，真实目标从 index 1 开始
+        foreach (var a in audio)
+            _cmbTarget.Items.Add($"🔊 {a.ProcessName} ({a.Pid})" + (string.IsNullOrWhiteSpace(a.Title) ? "" : "  " + Trunc(a.Title, 26)));
+        foreach (var a in others)
+            _cmbTarget.Items.Add($"　 {a.ProcessName} ({a.Pid})  {Trunc(a.Title, 26)}");
         _cmbTarget.SelectedIndex = 0;   // 停在占位项：必须手动选，避免默认录成列表里第一个程序
         _lblStatus.Text = _targets.Count == 0
-            ? "没检测到在发声的应用。先让会议/目标出点声音，再点“刷新”。"
-            : "请先在「录制目标」选要录哪个程序的声音（与下面的「投屏来源」是两回事）。";
+            ? "没列出任何程序，点“刷新”重试。"
+            : "「录制目标」选录哪个程序的声音（🔊=正在出声）；下面的「投屏来源」只管画面。";
     }
 
     private void RefreshSources()
