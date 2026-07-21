@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChannelRecorder · 无人值守录音录屏器</title>
+<meta name="description" content="录指定程序的声音 + 自动抓投屏画面，导出音频与 PDF。开会、播客、网课、网页，开录就不用管。Windows 免费开源。">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+<style>
+  :root{
+    --bg:#fbfaf8; --fg:#17161a; --muted:#6b6a72; --line:#e6e3dd;
+    --card:#ffffff; --accent:#d9531e; --accent-soft:#fdf0e9;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#131316; --fg:#f2f1ef; --muted:#a3a1ab; --line:#2b2b31;
+           --card:#1b1b1f; --accent:#ff7a45; --accent-soft:#2a1b14; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:0 24px}
+  a{color:inherit}
+
+  header{padding:88px 0 64px;text-align:center}
+  .logo{font-size:56px;line-height:1;margin-bottom:20px}
+  h1{font-size:clamp(30px,5.2vw,46px);line-height:1.25;margin:0 0 16px;letter-spacing:-.02em}
+  .sub{font-size:clamp(16px,2.3vw,19px);color:var(--muted);margin:0 auto 34px;max-width:33em}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
+  .btn{display:inline-block;padding:13px 26px;border-radius:10px;text-decoration:none;
+    font-weight:600;font-size:16px;border:1px solid transparent;transition:.15s}
+  .btn-main{background:var(--accent);color:#fff}
+  .btn-main:hover{filter:brightness(1.08)}
+  .btn-ghost{border-color:var(--line);color:var(--fg)}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .meta{font-size:13.5px;color:var(--muted)}
+
+  section{padding:46px 0;border-top:1px solid var(--line)}
+  h2{font-size:21px;margin:0 0 26px;letter-spacing:-.01em}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .card h3{margin:0 0 8px;font-size:16.5px}
+  .card p{margin:0;color:var(--muted);font-size:14.5px;line-height:1.7}
+  .ico{font-size:22px;display:block;margin-bottom:10px}
+
+  ol.steps{counter-reset:s;list-style:none;padding:0;margin:0;display:grid;gap:14px}
+  ol.steps li{counter-increment:s;position:relative;padding-left:44px;color:var(--muted);font-size:15px}
+  ol.steps li strong{color:var(--fg);font-weight:600}
+  ol.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:28px;height:28px;
+    border-radius:50%;background:var(--accent-soft);color:var(--accent);
+    display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}
+
+  .use{display:flex;flex-wrap:wrap;gap:9px}
+  .tag{border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:14px;color:var(--muted)}
+
+  .why{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px}
+  .why p{margin:0;color:var(--muted);font-size:14.5px}
+  .why b{color:var(--fg)}
+
+  .notice{border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:10px;padding:16px 20px;background:var(--card)}
+  .notice p{margin:0;font-size:14px;color:var(--muted)}
+  .notice b{color:var(--fg)}
+
+  details{border-bottom:1px solid var(--line);padding:14px 0}
+  details:last-of-type{border-bottom:0}
+  summary{cursor:pointer;font-weight:600;font-size:15.5px;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"＋";color:var(--accent);margin-right:10px;font-weight:700}
+  details[open] summary::before{content:"－"}
+  details p{margin:10px 0 0 26px;color:var(--muted);font-size:14.5px}
+
+  footer{padding:40px 0 60px;text-align:center;color:var(--muted);font-size:13.5px;border-top:1px solid var(--line)}
+  footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">🎙️</div>
+    <h1>开着录就行,剩下的它自己来</h1>
+    <p class="sub">
+      只录<b>你指定的那个程序</b>的声音,同时把画面按翻页自动存图 ——
+      <b>有音有画</b>。开完会人不在也没关系,它会自己停、自己压缩、自己导出 PDF。
+    </p>
+    <div class="cta">
+      <a class="btn btn-main" href="https://github.com/biaowww/channel_recording/releases/latest">下载(Windows · 免费)</a>
+      <a class="btn btn-ghost" href="https://github.com/biaowww/channel_recording">看源码 · GitHub</a>
+    </div>
+    <p class="meta">开源免费 · MIT · 下载即用,不用装任何运行环境 · Windows 10 (2004+) / 11</p>
+  </header>
+
+  <section>
+    <h2>它解决什么</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="ico">🎯</span>
+        <h3>只录那一个程序</h3>
+        <p>指定哪个程序,就只录它的声音。你的微信提示音、音乐、键盘声都不会混进去 —— 不是"录整个电脑"。</p>
+      </div>
+      <div class="card">
+        <span class="ico">🖼️</span>
+        <h3>有音,也有画</h3>
+        <p>自动识别投屏翻页,每一页存成图片,收工时合成一个 PDF / Word。听回放时对得上当时在讲哪一页。</p>
+      </div>
+      <div class="card">
+        <span class="ico">🤖</span>
+        <h3>无人值守</h3>
+        <p>会议软件关掉、或安静超过设定时间,它自己停、自己把音频压成小文件。你可以放着去干别的。</p>
+      </div>
+      <div class="card">
+        <span class="ico">🎤</span>
+        <h3>可以带上你自己</h3>
+        <p>勾一下就把麦克风混进同一个文件 —— 对方说的和你说的,都在一条音轨里。</p>
+      </div>
+      <div class="card">
+        <span class="ico">🗜️</span>
+        <h3>文件不会大到没法用</h3>
+        <p>自动转成 AAC,约 0.7MB/分钟。两小时的会大概 80MB,微信能发、网盘能传。</p>
+      </div>
+      <div class="card">
+        <span class="ico">🪟</span>
+        <h3>想录哪块自己划</h3>
+        <p>整块屏幕、某个窗口(会跟着窗口走)、或者鼠标拖一个框 —— 只要 PPT 那一块也行。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>三步开录</h2>
+    <ol class="steps">
+      <li><strong>选要录的程序</strong> —— 列表里挑,正在出声的会标 🔊</li>
+      <li><strong>勾要不要抓画面</strong> —— 要的话再选录屏幕的哪一块</li>
+      <li><strong>点开始,然后就不用管了</strong> —— 结束后音频和 PDF 都在你指定的文件夹里</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>都能拿来录什么</h2>
+    <div class="use">
+      <span class="tag">线上会议回看</span>
+      <span class="tag">网课 / 培训</span>
+      <span class="tag">播客</span>
+      <span class="tag">网页里的音视频</span>
+      <span class="tag">直播 / 分享会</span>
+      <span class="tag">带投屏的任何讲解</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>为什么它录得到</h2>
+    <div class="why">
+      <p>
+        它录的是声音<b>播放到系统之后</b>的那一路 —— 也就是<b>你耳朵听到的那份</b>,
+        而不是去调用某个软件自带的录制功能。所以它<b>不依赖对方软件给不给"录制权限"</b>。
+        画面走的是 Windows 现代捕获接口,硬件加速的内容也不会花屏,窗口被挡住也照抓。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>用之前请先读一句</h2>
+    <div class="notice">
+      <p>
+        <b>录别人讲话可能涉及隐私,某些场合还涉及"是否经过同意"的法律问题。</b>
+        请你确认自己<b>有权录制</b>、并且只用于自己回看整理。这个工具不替你做这个判断,
+        由此产生的责任由使用者承担。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>常见问题</h2>
+    <details>
+      <summary>要装什么吗?</summary>
+      <p>不用。下载下来是一个 exe,双击就开。运行环境已经打包在里面了(所以文件有点大,约 176MB)。</p>
+    </details>
+    <details>
+      <summary>只能 Windows?</summary>
+      <p>是的。它用的是 Windows 才有的进程级音频捕获(需要 Win10 2004 / build 19041 以上,Win11 直接可用)。</p>
+    </details>
+    <details>
+      <summary>录出来的文件放哪?</summary>
+      <p>界面上「存放位置」那一行随时看得到,可以改成你想要的任意文件夹,改完会记住。旁边有按钮一键打开。</p>
+    </details>
+    <details>
+      <summary>录出来没声音怎么办?</summary>
+      <p>八成是「录制目标」选错了程序。录制时界面有实时音量条,一直是空的就说明选错了,当场就能发现,不用等录完。</p>
+    </details>
+    <details>
+      <summary>收费吗?会不会传我的东西?</summary>
+      <p>完全免费、开源(MIT)。全程只在你自己电脑上跑,不联网、不上传任何内容。源码在 GitHub 上,可以自己看。</p>
+    </details>
+  </section>
+
+  <footer>
+    <p>
+      MIT 开源 · <a href="https://github.com/biaowww/channel_recording">GitHub</a> ·
+      <a href="https://github.com/biaowww/channel_recording/releases/latest">下载最新版</a> ·
+      <a href="https://github.com/biaowww/channel_recording/issues">反馈问题</a>
+    </p>
+    <p>做给自己用的小工具,顺手开源。用得上就拿去。</p>
+  </footer>
+
+</div>
+</body>
+</html>
