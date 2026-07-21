@@ -8,22 +8,31 @@ internal static class PathUtil
     /// 找项目根目录：从 exe 所在目录向上找含 ChannelRecorder.csproj 的目录；
     /// 找不到（比如发布成独立 exe）就退回到 exe 所在目录。
     /// </summary>
-    public static string FindProjectRoot()
+    /// <summary>
+    /// 默认归档根目录：
+    /// · 开发环境（沿路径能找到 ChannelRecorder.csproj）→ 仓库根\recording（源码在 src/ 时也落仓库根）
+    /// · 独立发布的 exe（找不到工程文件，用户可能把它放在任意位置）→ 我的文档\ChannelRecorder
+    /// </summary>
+    public static string DefaultRecordingRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir != null)
         {
             if (File.Exists(Path.Combine(dir.FullName, "ChannelRecorder.csproj")))
-                return dir.FullName;
+            {
+                string root = (string.Equals(dir.Name, "src", StringComparison.OrdinalIgnoreCase) && dir.Parent != null)
+                    ? dir.Parent.FullName : dir.FullName;
+                return Path.Combine(root, "recording");
+            }
             dir = dir.Parent;
         }
-        return AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ChannelRecorder");
     }
 
     /// <summary>录音归档根目录：&lt;项目根&gt;\recording（不存在则创建）。</summary>
     public static string EnsureRecordingDir(string overrideDir = null)
     {
-        string dir = overrideDir ?? Path.Combine(FindProjectRoot(), "recording");
+        string dir = overrideDir ?? DefaultRecordingRoot();
         Directory.CreateDirectory(dir);
         return dir;
     }

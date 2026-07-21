@@ -1,2 +1,2 @@
 @echo off
-"%~dp0bin\Release\net8.0-windows10.0.19041.0\ChannelRecorder.exe" %*
+"%~dp0src\bin\Release\net8.0-windows10.0.19041.0\ChannelRecorder.exe" %*

@@ -43,9 +43,9 @@
 ```powershell
 git clone https://github.com/biaowww/channel_recording.git
 cd channel_recording
-dotnet build -c Release
+dotnet build src\ChannelRecorder.csproj -c Release
 ```
-编译好后，程序在：`bin\Release\net8.0-windows10.0.19041.0\ChannelRecorder.exe`（也可双击根目录 `gui.bat` / `rec.bat`）。
+编译好后，程序在：`src\bin\Release\net8.0-windows10.0.19041.0\ChannelRecorder.exe`（也可直接双击根目录的 `gui.bat` / `rec.bat`）。
 
 ---
 
@@ -90,7 +90,12 @@ dotnet build -c Release
 
 ## 四、输出在哪 / 是什么
 
-所有产物都在项目的 **`recording\`** 文件夹里：
+产物存放位置：
+- **从源码运行**（本仓库）→ 仓库根目录的 **`recording\`**
+- **用打包好的独立 exe** → **`我的文档\ChannelRecorder\`**（exe 放哪都不影响）
+- 两种情况都可用 `--dir` 或界面「打开录音文件夹」定位。
+
+里面是：
 
 - 录音：默认 `会议名_时间.m4a`（**AAC 96kbps，约 0.7 MB/分钟**，200MB 约能装 4.6 小时）；勾掉"音频转 AAC"或命令行加 `--wav` 则输出无损 `.wav`（约 10 MB/分钟）。
 - 投屏：`会议名_时间_slides\` 里一张张图片 ＋ `会议名_时间.pdf`（或 `.docx`）。
@@ -156,11 +161,24 @@ dotnet build -c Release
 
 打包成**单个、对方不用装运行时**的 exe：
 ```powershell
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+dotnet publish src\ChannelRecorder.csproj -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist
 ```
-把 `publish\ChannelRecorder.exe` 发给别人即可（文件较大，因为内置了运行时）。也可以上传到本仓库的 **Releases**。
+把 `dist\ChannelRecorder.exe` 发给别人即可（约 176MB，因为内置了 .NET 运行时，对方什么都不用装）。
+也可以上传到本仓库的 **Releases**。
 
-## 九、代码结构（开发者）
+## 九、仓库结构 / 代码结构（开发者）
+
+```
+channel_recording/
+├─ src/            所有源码 + ChannelRecorder.csproj（编译产物落 src\bin）
+├─ recording/      从源码运行时的录音归档（不入库）
+├─ dist/           打包出的自包含 exe（不入库，发布走 Releases）
+├─ gui.bat         双击开图形界面     rec.bat  命令行入口
+└─ README.md  LICENSE  .gitignore
+```
+
+`src/` 里各文件：
 
 | 文件 | 作用 |
 | --- | --- |
