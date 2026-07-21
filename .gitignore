@@ -1,6 +1,9 @@
 # ── 构建产物 ──
 [Bb]in/
 [Oo]bj/
+# 本地打包的自包含 exe（体积大，不入库；发布走 GitHub Releases）
+dist/
+publish/
 *.user
 .vs/
 
