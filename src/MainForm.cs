@@ -31,6 +31,8 @@ internal sealed class MainForm : Form
     private readonly Button _btnStart = new() { Text = "● 开始录制" };
     private readonly Button _btnStop = new() { Text = "■ 停止", Enabled = false };
     private readonly Button _btnOpen = new() { Text = "打开录音文件夹" };
+    private readonly TextBox _txtDir = new() { ReadOnly = true };   // 只读但可选中复制
+    private readonly Button _btnPickDir = new() { Text = "更改…" };
     private readonly Label _lblStatus = new() { Text = "就绪。选择目标后点“开始录制”。", AutoSize = false };
     private readonly Label _lblStats = new() { AutoSize = false };
 
@@ -43,6 +45,8 @@ internal sealed class MainForm : Form
     private bool _suppressSource;
     private readonly int _ownPid = Environment.ProcessId;
     private RecordingSession _session;
+    private Settings _settings = new();
+    private string _recordingDir;
 
     private bool _starting, _recording, _closePending, _allowClose;
 
@@ -50,7 +54,7 @@ internal sealed class MainForm : Form
     {
         Text = "ChannelRecorder · 定向录音";
         Font = new Font("Microsoft YaHei UI", 9f);
-        ClientSize = new Size(480, 344);
+        ClientSize = new Size(480, 380);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -73,19 +77,24 @@ internal sealed class MainForm : Form
         _numSilence.SetBounds(196, 144, 70, 24);
         var lblExit = new Label { Text = "（目标进程关闭也会自动停）", Location = new Point(276, 148), AutoSize = true, ForeColor = Color.Gray };
 
-        _btnStart.SetBounds(14, 184, 130, 34);
-        _btnStop.SetBounds(154, 184, 110, 34);
-        _btnOpen.SetBounds(330, 184, 136, 34);
+        var lblDir = new Label { Text = "存放位置:", Location = new Point(14, 184), AutoSize = true };
+        _txtDir.SetBounds(86, 181, 300, 23);
+        _btnPickDir.SetBounds(394, 180, 72, 26);
 
-        _lblStatus.SetBounds(14, 234, 452, 24);
+        _btnStart.SetBounds(14, 218, 130, 34);
+        _btnStop.SetBounds(154, 218, 110, 34);
+        _btnOpen.SetBounds(330, 218, 136, 34);
+
+        _lblStatus.SetBounds(14, 268, 452, 24);
         _lblStatus.ForeColor = Color.FromArgb(0, 90, 160);
-        _lblStats.SetBounds(14, 262, 452, 70);
+        _lblStats.SetBounds(14, 296, 452, 70);
         _lblStats.ForeColor = Color.DimGray;
 
         Controls.AddRange(new Control[]
         {
             lblT, _cmbTarget, _btnRefresh, _chkTree, _chkMic, _chkAac, _chkSlides,
             lblSrc, _cmbSource, lblDoc, _cmbDoc, lblSil, _numSilence, lblExit,
+            lblDir, _txtDir, _btnPickDir,
             _btnStart, _btnStop, _btnOpen, _lblStatus, _lblStats,
         });
 
@@ -105,10 +114,18 @@ internal sealed class MainForm : Form
         _btnStart.Click += OnStart;
         _btnStop.Click += OnStopClicked;
         _btnOpen.Click += OnOpenFolder;
+        _btnPickDir.Click += OnPickDir;
         _timer.Tick += OnTick;
         FormClosing += OnFormClosing;
 
-        Load += (_, _) => { _monitors = ScreenCapture.Monitors(); RefreshTargets(); RefreshSources(); };
+        Load += (_, _) =>
+        {
+            _settings = Settings.Load();
+            SetRecordingDir(_settings.RecordingDir ?? PathUtil.DefaultRecordingRoot());
+            _monitors = ScreenCapture.Monitors();
+            RefreshTargets();
+            RefreshSources();
+        };
     }
 
     private void RefreshTargets()
@@ -151,7 +168,7 @@ internal sealed class MainForm : Form
         _cmbTarget.SelectedIndex = 0;   // 停在占位项：必须手动选，避免默认录成列表里第一个程序
         _lblStatus.Text = _targets.Count == 0
             ? "没列出任何程序，点“刷新”重试。"
-            : "「录制目标」选录哪个程序的声音（🔊=正在出声）；下面的「投屏来源」只管画面。";
+            : "🔊 = 正在出声。「录制目标」管声音，「投屏来源」管画面。";
     }
 
     private void RefreshSources()
@@ -290,6 +307,7 @@ internal sealed class MainForm : Form
             Slides = _chkSlides.Checked,
             SlideSource = _chkSlides.Checked ? SelectedSlideSource() : null,
             DocFormat = _cmbDoc.SelectedItem?.ToString() ?? "pdf",
+            DirOverride = _recordingDir,
             MeetingName = Program.GetMeetingName(app.Pid, app.ProcessName),
         };
         session.Stopped += OnSessionStopped;
@@ -399,11 +417,36 @@ internal sealed class MainForm : Form
         }
     }
 
+    private void SetRecordingDir(string dir)
+    {
+        _recordingDir = dir;
+        _txtDir.Text = dir;
+        _txtDir.SelectionStart = dir.Length;   // 长路径默认显示尾部（看得到最终文件夹名）
+        _txtDir.ScrollToCaret();
+    }
+
+    /// <summary>选择存放位置，选完记进 settings.json，下次打开还是它。</summary>
+    private void OnPickDir(object sender, EventArgs e)
+    {
+        using var dlg = new FolderBrowserDialog
+        {
+            Description = "选择录音 / 投屏文件的存放位置",
+            UseDescriptionForTitle = true,
+            SelectedPath = Directory.Exists(_recordingDir) ? _recordingDir : PathUtil.DefaultRecordingRoot(),
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        SetRecordingDir(dlg.SelectedPath);
+        _settings.RecordingDir = dlg.SelectedPath;
+        _settings.Save();
+        _lblStatus.Text = "存放位置已更改并记住，下次录制起生效。";
+    }
+
     private void OnOpenFolder(object sender, EventArgs e)
     {
         try
         {
-            string dir = _session?.RecordingDir ?? PathUtil.EnsureRecordingDir();
+            string dir = _session?.RecordingDir ?? PathUtil.EnsureRecordingDir(_recordingDir);
             Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "打不开文件夹", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
@@ -417,6 +460,7 @@ internal sealed class MainForm : Form
         _cmbTarget.Enabled = _btnRefresh.Enabled = inputs;
         _chkTree.Enabled = _chkMic.Enabled = _chkAac.Enabled = _chkSlides.Enabled = inputs;
         _numSilence.Enabled = inputs;
+        _btnPickDir.Enabled = inputs;   // 录制中不许改存放位置
         _cmbSource.Enabled = _cmbDoc.Enabled = inputs && _chkSlides.Checked;
     }
 

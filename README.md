@@ -90,10 +90,13 @@ dotnet build src\ChannelRecorder.csproj -c Release
 
 ## 四、输出在哪 / 是什么
 
-产物存放位置：
+产物存放位置：**界面上「存放位置」那一行随时能看到当前路径**，点 **更改…** 可改到任意文件夹，
+**改完会记住**（存在 `%APPDATA%\ChannelRecorder\settings.json`），下次打开还是它；点 **打开录音文件夹** 直接跳过去。
+
+没改过时的默认值：
 - **从源码运行**（本仓库）→ 仓库根目录的 **`recording\`**
 - **用打包好的独立 exe** → **`我的文档\ChannelRecorder\`**（exe 放哪都不影响）
-- 两种情况都可用 `--dir` 或界面「打开录音文件夹」定位。
+- 命令行可用 `--dir` 指定。
 
 里面是：
 
