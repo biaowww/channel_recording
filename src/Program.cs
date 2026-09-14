@@ -168,7 +168,8 @@ internal static class Program
             ended.Wait(500);
             string extra = slides ? $"  slide {session.SlideCount}" : "";
             string sil = (silence > 0 && session.HasSound) ? $"  静音 {session.SecondsSinceSound,4:F0}/{silence}s" : "";
-            Console.Write($"\r  时长 {session.Elapsed:hh\\:mm\\:ss}  {session.Bytes / 1024.0 / 1024.0:F1} MB{extra}{sil}        ");
+            string warn = session.SlideWarning is string w ? $"  ⚠ {w}" : "";
+            Console.Write($"\r  时长 {session.Elapsed:hh\\:mm\\:ss}  {session.Bytes / 1024.0 / 1024.0:F1} MB{extra}{sil}{warn}        ");
         }
 
         Console.WriteLine($"\n✔ 已停止（{reason}）");

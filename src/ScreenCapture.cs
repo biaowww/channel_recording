@@ -34,11 +34,23 @@ internal static class ScreenCapture
     [DllImport("user32.dll")] private static extern int GetWindowTextLength(IntPtr h);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr h, int cmd);
+    [DllImport("user32.dll")] private static extern bool GetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT p);
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr h, int attr, out RECT val, int size);
     private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+    private const int SW_MAXIMIZE = 3, SW_SHOWNOACTIVATE = 4;
+    private const int WPF_RESTORETOMAXIMIZED = 2;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WINDOWPLACEMENT
+    {
+        public int length, flags, showCmd;
+        public int ptMinX, ptMinY, ptMaxX, ptMaxY;
+        public RECT rcNormal;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; public int dwFlags; }
@@ -141,6 +153,29 @@ internal static class ScreenCapture
             return true;
         }, IntPtr.Zero);
         return list;
+    }
+
+    /// <summary>窗口句柄还有效（没被关掉）。</summary>
+    public static bool IsAlive(IntPtr hwnd) => hwnd != IntPtr.Zero && IsWindow(hwnd);
+
+    /// <summary>
+    /// 窗口是否最小化。最小化的窗口 Windows 根本不渲染，任何截屏 API（含 WGC）都拿不到一帧——
+    /// 这是"slide 一直 0"的头号原因（被别的窗口盖住反而没事）。
+    /// </summary>
+    public static bool IsMinimized(IntPtr hwnd) => IsAlive(hwnd) && IsIconic(hwnd);
+
+    /// <summary>
+    /// 把最小化的窗口还原到屏幕上，但不抢焦点、不弹到前面（用户手头的活不被打断）；
+    /// 之前是最大化的就还原成最大化，保住抓取分辨率。已经不是最小化则什么都不做，返回 false。
+    /// </summary>
+    public static bool RestoreNoActivate(IntPtr hwnd)
+    {
+        if (!IsMinimized(hwnd)) return false;
+        var wp = new WINDOWPLACEMENT { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
+        bool wasMax = GetWindowPlacement(hwnd, ref wp) && (wp.flags & WPF_RESTORETOMAXIMIZED) != 0;
+        ShowWindow(hwnd, SW_SHOWNOACTIVATE);                 // 取消最小化，不激活
+        if (wasMax) ShowWindow(hwnd, SW_MAXIMIZE);           // SW_MAXIMIZE 不激活（SW_SHOWMAXIMIZED 才会）
+        return !IsIconic(hwnd);
     }
 
     /// <summary>窗口当前在屏幕上的矩形（随窗口移动而变）。最小化/无效返回空，便于跳过。</summary>

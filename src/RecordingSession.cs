@@ -21,6 +21,8 @@ internal sealed class RecordingSession
     public bool Slides;
     public SlideSource SlideSource;   // 投屏抓取源（显示器 / 窗口 / 框选区域）
     public int SlideIntervalMs = 1000;
+    /// <summary>抓窗口时：发现它被最小化就自动还原（不抢焦点）。最小化的窗口不渲染，任何截屏都抓不到。</summary>
+    public bool RestoreMinimizedSource = true;
     public string DocFormat = "pdf";    // pdf | docx | both
     public string MeetingName = "recording";
     public string OutPathOverride;
@@ -46,6 +48,28 @@ internal sealed class RecordingSession
     /// <summary>当前投屏抓取分辨率，如 "1920x1080"；未用 WGC 或还没帧则 null。</summary>
     public string CaptureInfo =>
         (_wgc != null && _wgc.CaptureWidth > 0) ? $"{_wgc.CaptureWidth}x{_wgc.CaptureHeight}" : null;
+    /// <summary>录制中自动把投屏窗口从最小化还原的次数（界面据此提示"已自动还原"）。</summary>
+    public int SourceRestores => _sourceRestores;
+    /// <summary>
+    /// 投屏抓取当前的问题（null = 正常）。给界面/命令行当场显示，别等录完才发现 slide 是 0。
+    /// </summary>
+    public string SlideWarning
+    {
+        get
+        {
+            if (!Slides || SlideSource == null || !IsRunning) return null;
+            if (SlideSource.Kind == SlideSourceKind.Window)
+            {
+                var h = SlideSource.Hwnd;
+                if (!ScreenCapture.IsAlive(h)) return "投屏窗口已关闭，抓不到画面";
+                if (ScreenCapture.IsMinimized(h))
+                    return RestoreMinimizedSource ? "投屏窗口被最小化，正在自动还原…" : "投屏窗口被最小化，抓不到画面——请还原它（被盖住没关系）";
+            }
+            if (_wgc != null && _wgc.CaptureWidth == 0 && _sw.Elapsed.TotalSeconds >= 5)
+                return "还没抓到任何画面（窗口是否在屏幕上？）";
+            return null;
+        }
+    }
 
     /// <summary>停止并收尾完成后触发一次（含 WAV 收尾与文档导出），参数为停止原因。可能在后台线程触发。</summary>
     public event Action<string> Stopped;
@@ -64,6 +88,7 @@ internal sealed class RecordingSession
     private readonly object _gate = new();
     private string _stopReason;
     private int _finished;
+    private int _sourceRestores;
 
     public void Start()
     {
@@ -95,6 +120,10 @@ internal sealed class RecordingSession
 
             if (Slides && SlideSource != null)
             {
+                // 开始那一刻窗口若是最小化的，先还原：否则 WGC 从第一帧起就空转，帧池尺寸也取不到
+                if (RestoreMinimizedSource && SlideSource.Kind == SlideSourceKind.Window &&
+                    ScreenCapture.RestoreNoActivate(SlideSource.Hwnd))
+                    _sourceRestores++;
                 SlidesDir = Path.Combine(RecordingDir, SessionBase + "_slides");
                 _slideCap = new SlideCapturer(BuildFrameProvider(SlideSource), SlidesDir, SlideIntervalMs);
             }
@@ -139,6 +168,13 @@ internal sealed class RecordingSession
                 RequestStop($"静音超过 {SilenceSeconds}s");
             else if (StopOnExit && _target != null && HasExitedSafe(_target))
                 RequestStop("目标进程已退出");
+
+            // 投屏窗口被最小化就还原（不抢焦点）：实战里 slide 一直 0 几乎都是这个原因，无人值守时没人替它还原
+            if (RestoreMinimizedSource && _slideCap != null && SlideSource?.Kind == SlideSourceKind.Window)
+            {
+                try { if (ScreenCapture.RestoreNoActivate(SlideSource.Hwnd)) Interlocked.Increment(ref _sourceRestores); }
+                catch { }
+            }
         }
     }
 

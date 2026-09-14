@@ -55,6 +55,8 @@ internal sealed class WgcCapturer : IDisposable
 
     private readonly object _frameLock = new();   // 串行化 OnFrameArrived 与 Dispose，避免停止时用已释放的 pool/device
     private volatile bool _disposed;
+    private bool _drainScheduled;                 // 限流期内到了帧：已排了一次"稍后补读"
+    private const int ReadIntervalMs = 350;       // GPU→CPU 读回的最小间隔（抓帧只需 ~1fps，WGC 可能 60fps 到帧）
 
     // 窗口源的"真实尺寸"探针：帧池按它建/重建，避免开始那一刻窗口很小导致全程低分辨率
     private readonly Func<SizeInt32?> _liveSize;
@@ -147,30 +149,57 @@ internal sealed class WgcCapturer : IDisposable
         lock (_frameLock)
         {
             if (_disposed) return;
-            try
+            long since = Environment.TickCount64 - _lastMs;
+            if (since >= ReadIntervalMs) { Drain(); return; }
+
+            // 限流期内：帧留在池里不消费，稍后补读。之前是"直接丢"，若翻页的最后一帧恰落在限流窗口、
+            // 之后画面静止（WGC 不再送帧），那一帧就永远读不到——存下的会是翻页动画的中间帧，
+            // 或窗口刚从最小化还原时那一瞬的黑屏。
+            if (!_drainScheduled)
             {
-                using var frame = sender.TryGetNextFrame();
-                if (frame == null) return;
-
-                long now = Environment.TickCount64;
-                if (now - _lastMs >= 350)   // 限流：WGC 可能 60fps 到帧，抓帧只需 ~1fps
+                _drainScheduled = true;
+                Task.Delay((int)(ReadIntervalMs - since) + 10).ContinueWith(_ =>
                 {
-                    _lastMs = now;
-                    try { ReadFrame(frame); } catch { }
-                }
-
-                // 期望尺寸：窗口源用窗口真实尺寸（跟随最大化/改大小），否则用内容尺寸
-                var live = _liveSize?.Invoke();
-                var want = (live is SizeInt32 ls && ls.Width > 0 && ls.Height > 0) ? ls : frame.ContentSize;
-                if (want.Width > 0 && want.Height > 0 &&
-                    (want.Width != _poolSize.Width || want.Height != _poolSize.Height))
-                {
-                    _poolSize = want;
-                    try { _pool.Recreate(_device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _poolSize); } catch { }
-                }
+                    lock (_frameLock)
+                    {
+                        _drainScheduled = false;
+                        if (!_disposed) Drain();
+                    }
+                });
             }
-            catch { }
         }
+    }
+
+    /// <summary>把池里排队的帧全部取出，只读最新一帧（旧的已过时），并按需重建帧池尺寸。须持 _frameLock。</summary>
+    private void Drain()
+    {
+        Direct3D11CaptureFrame newest = null;
+        try
+        {
+            while (true)   // 池是 FIFO：一路取到空，留最后一帧
+            {
+                var f = _pool.TryGetNextFrame();
+                if (f == null) break;
+                newest?.Dispose();
+                newest = f;
+            }
+            if (newest == null) return;
+
+            _lastMs = Environment.TickCount64;
+            try { ReadFrame(newest); } catch { }
+
+            // 期望尺寸：窗口源用窗口真实尺寸（跟随最大化/改大小），否则用内容尺寸
+            var live = _liveSize?.Invoke();
+            var want = (live is SizeInt32 ls && ls.Width > 0 && ls.Height > 0) ? ls : newest.ContentSize;
+            if (want.Width > 0 && want.Height > 0 &&
+                (want.Width != _poolSize.Width || want.Height != _poolSize.Height))
+            {
+                _poolSize = want;
+                try { _pool.Recreate(_device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _poolSize); } catch { }
+            }
+        }
+        catch { }
+        finally { newest?.Dispose(); }
     }
 
     private void ReadFrame(Direct3D11CaptureFrame frame)

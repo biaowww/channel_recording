@@ -55,7 +55,7 @@ internal sealed class MainForm : Form
         Text = "ChannelRecorder · 定向录音";
         try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath); } catch { }   // 标题栏/任务栏图标
         Font = new Font("Microsoft YaHei UI", 9f);
-        ClientSize = new Size(480, 380);
+        ClientSize = new Size(480, 398);   // 状态区多留一行给"⚠ 投屏窗口被最小化"这类提示
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -88,7 +88,7 @@ internal sealed class MainForm : Form
 
         _lblStatus.SetBounds(14, 268, 452, 24);
         _lblStatus.ForeColor = Color.FromArgb(0, 90, 160);
-        _lblStats.SetBounds(14, 296, 452, 70);
+        _lblStats.SetBounds(14, 296, 452, 88);
         _lblStats.ForeColor = Color.DimGray;
 
         Controls.AddRange(new Control[]
@@ -336,7 +336,8 @@ internal sealed class MainForm : Form
         _recording = true;
         SetControls(canStart: false, canStop: true);
         string micNote = session.MicRequested ? (session.MicActive ? "，含麦克风" : "，麦克风不可用") : "";
-        _lblStatus.Text = $"● 正在录制{micNote}… 关会议或静音 {session.SilenceSeconds}s 会自动停。";
+        string srcNote = session.SourceRestores > 0 ? " 投屏窗口原本是最小化的，已替你还原。" : "";
+        _lblStatus.Text = $"● 正在录制{micNote}… 关会议或静音 {session.SilenceSeconds}s 会自动停。{srcNote}";
         _timer.Start();
 
         if (_closePending)
@@ -368,7 +369,11 @@ internal sealed class MainForm : Form
         if (_chkSlides.Checked)
         {
             string cap = s.CaptureInfo != null ? $"   抓取 {s.CaptureInfo}" : "";
-            lines.Add($"slide {s.SlideCount}{cap}");
+            string restored = s.SourceRestores > 0 ? $"   （已自动还原最小化窗口 {s.SourceRestores} 次）" : "";
+            lines.Add($"slide {s.SlideCount}{cap}{restored}");
+            // 抓不到画面要当场喊出来：最小化 / 窗口已关 / 迟迟没帧。等录完才看到 slide=0 就晚了
+            string warn2 = s.SlideWarning;
+            if (warn2 != null) lines.Add("⚠ " + warn2);
         }
         if (s.SilenceSeconds > 0 && s.HasSound)
             lines.Add($"静音 {s.SecondsSinceSound:F0}/{s.SilenceSeconds}s 后自动停");
