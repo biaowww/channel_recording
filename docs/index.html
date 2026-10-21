@@ -24,6 +24,8 @@
   svg{display:block}
 
   header{padding:80px 0 40px;text-align:center}
+  .brand{font-size:clamp(20px,3vw,26px);font-weight:700;letter-spacing:.01em;margin-bottom:14px}
+  .brand em{font-style:normal;color:var(--accent)}
   header img.logo{width:72px;height:72px;margin:0 auto 22px;border-radius:16px}
   h1{font-size:clamp(30px,5.2vw,46px);line-height:1.25;margin:0 0 16px;letter-spacing:-.02em}
   .sub{font-size:clamp(16px,2.3vw,19px);color:var(--muted);margin:0 auto 34px;max-width:33em}
@@ -88,6 +90,7 @@
 
   <header>
     <img class="logo" src="icon.svg" alt="ChannelRecorder">
+    <div class="brand">Channel<em>Recorder</em></div>
     <h1>开着录就行,剩下的它自己来</h1>
     <p class="sub">
       只录<b>你指定的那个程序</b>的声音,同时把画面按翻页自动存图 ——
